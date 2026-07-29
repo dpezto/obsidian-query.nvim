@@ -38,8 +38,10 @@ date_mt = {
   end,
 }
 
--- greedy decomposition, fixed factors (y=365d, mo=30d, w=7d — deviates from
--- Luxon's calendar-aware shifting; fine for note queries)
+-- Durations are hybrid: `ms` for the clock part plus symbolic `months`
+-- (months/years), so date arithmetic can shift calendar months like Luxon
+-- instead of adding a fixed 30 days. DUR_MS keeps approximate factors for
+-- ordering/comparison of mixed durations only.
 local DUR_MS = {
   years = 365 * 24 * 3600 * 1000,
   months = 30 * 24 * 3600 * 1000,
@@ -53,11 +55,37 @@ local DUR_MS = {
 dur_mt = {
   dv = "dur",
   __index = function(self, key)
-    if DUR_MS[key] then
+    local months = rawget(self, "months") or 0
+    if key == "years" then
+      return math.floor(months / 12)
+    elseif key == "months" then
+      return months
+    elseif DUR_MS[key] then
       return math.floor(self.ms / DUR_MS[key])
     end
   end,
 }
+
+---Approximate total ms (for cmp/eq only — arithmetic keeps parts separate)
+local function dur_approx_ms(d)
+  return d.ms + (rawget(d, "months") or 0) * DUR_MS.months
+end
+
+---Luxon-style month shift with day clamping (Jan 31 + 1 month = Feb 28)
+local function shift_months(ts, months)
+  local t = os.date("*t", math.floor(ts)) --[[@as osdate]]
+  local total = (t.year * 12 + (t.month - 1)) + months
+  local year, month = math.floor(total / 12), (total % 12) + 1
+  local last = os.date("*t", os.time({ year = year, month = month + 1, day = 0 })).day
+  return os.time({
+    year = year,
+    month = month,
+    day = math.min(t.day, last),
+    hour = t.hour,
+    min = t.min,
+    sec = t.sec,
+  })
+end
 
 link_mt = { dv = "link" }
 array_mt = { dv = "array" }
@@ -67,8 +95,10 @@ function M.date(ts, prec)
   return setmetatable({ ts = ts, prec = prec or "datetime" }, date_mt)
 end
 
-function M.dur(ms)
-  return setmetatable({ ms = ms }, dur_mt)
+---@param ms number clock part
+---@param months? number symbolic calendar part (months; years fold into it)
+function M.dur(ms, months)
+  return setmetatable({ ms = ms, months = months or 0 }, dur_mt)
 end
 
 ---@param path string vault-relative or bare note name
@@ -167,15 +197,21 @@ function M.parse_dur(s)
   if type(s) ~= "string" then
     return M.NULL
   end
-  local ms, found = 0, false
+  local ms, months, found = 0, 0, false
   for num, unit in s:gmatch("(%d+%.?%d*)%s*(%a+)") do
     local u = DUR_UNITS[unit:lower()]
-    if u then
+    if u == "months" then
+      months = months + tonumber(num)
+      found = true
+    elseif u == "years" then
+      months = months + tonumber(num) * 12
+      found = true
+    elseif u then
       ms = ms + tonumber(num) * DUR_MS[u]
       found = true
     end
   end
-  return found and M.dur(ms) or M.NULL
+  return found and M.dur(ms, months) or M.NULL
 end
 
 ---------------------------------------------------------------- comparison
@@ -207,7 +243,7 @@ function M.eq(a, b)
   elseif ta == "date" then
     return a.ts == b.ts
   elseif ta == "duration" then
-    return a.ms == b.ms
+    return dur_approx_ms(a) == dur_approx_ms(b)
   elseif ta == "link" then
     return norm_link_path(a) == norm_link_path(b)
   elseif ta == "array" then
@@ -258,7 +294,7 @@ function M.cmp(a, b)
   elseif ta == "date" then
     return scalar(a.ts, b.ts)
   elseif ta == "duration" then
-    return scalar(a.ms, b.ms)
+    return scalar(dur_approx_ms(a), dur_approx_ms(b))
   elseif ta == "link" then
     return scalar(norm_link_path(a), norm_link_path(b))
   elseif ta == "array" then
@@ -326,11 +362,11 @@ function M.arith(op, a, b)
     if ta == "number" and tb == "number" then
       return a + b
     elseif ta == "date" and tb == "duration" then
-      return M.date(a.ts + b.ms / 1000, a.prec)
+      return M.date(shift_months(a.ts, b.months) + b.ms / 1000, a.prec)
     elseif ta == "duration" and tb == "date" then
-      return M.date(b.ts + a.ms / 1000, b.prec)
+      return M.date(shift_months(b.ts, a.months) + a.ms / 1000, b.prec)
     elseif ta == "duration" and tb == "duration" then
-      return M.dur(a.ms + b.ms)
+      return M.dur(a.ms + b.ms, a.months + b.months)
     elseif ta == "array" and tb == "array" then
       local out = {}
       vim.list_extend(out, a)
@@ -346,17 +382,17 @@ function M.arith(op, a, b)
     elseif ta == "date" and tb == "date" then
       return M.dur((a.ts - b.ts) * 1000)
     elseif ta == "date" and tb == "duration" then
-      return M.date(a.ts - b.ms / 1000, a.prec)
+      return M.date(shift_months(a.ts, -b.months) - b.ms / 1000, a.prec)
     elseif ta == "duration" and tb == "duration" then
-      return M.dur(a.ms - b.ms)
+      return M.dur(a.ms - b.ms, a.months - b.months)
     end
   elseif op == "*" then
     if ta == "number" and tb == "number" then
       return a * b
     elseif ta == "duration" and tb == "number" then
-      return M.dur(a.ms * b)
+      return M.dur(a.ms * b, a.months * b)
     elseif ta == "number" and tb == "duration" then
-      return M.dur(b.ms * a)
+      return M.dur(b.ms * a, b.months * a)
     end
   elseif op == "/" then
     if tb == "number" and b == 0 then
@@ -365,7 +401,7 @@ function M.arith(op, a, b)
     if ta == "number" and tb == "number" then
       return a / b
     elseif ta == "duration" and tb == "number" then
-      return M.dur(a.ms / b)
+      return M.dur(a.ms / b, a.months / b)
     end
   elseif op == "%" then
     if ta == "number" and tb == "number" and b ~= 0 then
@@ -406,8 +442,18 @@ function M.to_display(v)
   elseif t == "date" then
     return os.date(v.prec == "date" and "%Y-%m-%d" or "%Y-%m-%d %H:%M", math.floor(v.ts)) --[[@as string]]
   elseif t == "duration" then
-    local parts, rem = {}, v.ms
-    for _, u in ipairs({ "years", "months", "days", "hours", "minutes", "seconds" }) do
+    local parts = {}
+    local months = rawget(v, "months") or 0
+    local years = math.floor(math.abs(months) / 12) * (months < 0 and -1 or 1)
+    local mrem = months - years * 12
+    if years ~= 0 then
+      parts[#parts + 1] = years .. (math.abs(years) == 1 and " year" or " years")
+    end
+    if mrem ~= 0 then
+      parts[#parts + 1] = mrem .. (math.abs(mrem) == 1 and " month" or " months")
+    end
+    local rem = v.ms
+    for _, u in ipairs({ "days", "hours", "minutes", "seconds" }) do
       local n = math.floor(rem / DUR_MS[u])
       if n > 0 then
         parts[#parts + 1] = n .. " " .. (n == 1 and u:sub(1, -2) or u)

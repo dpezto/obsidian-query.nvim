@@ -74,6 +74,7 @@ local function get_page(path, root)
     root = root,
     sup = idx.sup,
     inlinks = idx.inlinks,
+    starred = idx.starred,
   })
   page_cache[path] = { gen = idx_gen, page = page }
   return page

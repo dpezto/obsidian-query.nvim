@@ -38,6 +38,7 @@ local DQL_KEYWORDS = {
   { "AND", "Both sides truthy" },
   { "OR", "Either side truthy" },
   { "outgoing(", "Pages a note links to: `FROM outgoing([[note]])`" },
+  { "csv(", "Query a CSV file's rows: `FROM csv(\"data.csv\")`" },
   { "this", "The note containing this fence" },
 }
 

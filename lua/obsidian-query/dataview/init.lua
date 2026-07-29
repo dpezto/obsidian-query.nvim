@@ -30,6 +30,7 @@ function M.run(spec, ctx, cb)
       root = ctx.root,
       sup = idx.sup,
       inlinks = idx.inlinks,
+      starred = idx.starred,
       this_path = this_path,
     }))
   end)

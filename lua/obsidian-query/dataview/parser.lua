@@ -111,6 +111,12 @@ function P:src_atom()
     local inner = self:expect("LINK")
     self:expect(")")
     return { k = "s_outgoing", raw = inner.text }
+  elseif t.type == "IDENT" and t.text:lower() == "csv" then
+    self:advance()
+    self:expect("(")
+    local path = self:expect("STRING")
+    self:expect(")")
+    return { k = "s_csv", path = path.text }
   elseif t.type == "(" then
     self:advance()
     local s = self:source()

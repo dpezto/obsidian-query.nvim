@@ -111,6 +111,8 @@ local function source_set(src, ctx)
       end
     end
     return acc
+  elseif k == "s_csv" then
+    error("csv() must be the only FROM source", 0)
   elseif k == "s_not" then
     local exclude = source_set(src.kid, ctx)
     local out = {}
@@ -122,6 +124,90 @@ local function source_set(src, ctx)
     return out
   end
   return {}
+end
+
+---------------------------------------------------------------- csv
+
+local function parse_csv_line(line)
+  local fields, i, n = {}, 1, #line
+  while i <= n do
+    if line:sub(i, i) == '"' then
+      local buf = {}
+      i = i + 1
+      while i <= n do
+        local ch = line:sub(i, i)
+        if ch == '"' and line:sub(i + 1, i + 1) == '"' then
+          buf[#buf + 1] = '"'
+          i = i + 2
+        elseif ch == '"' then
+          i = i + 1
+          break
+        else
+          buf[#buf + 1] = ch
+          i = i + 1
+        end
+      end
+      fields[#fields + 1] = table.concat(buf)
+      i = i + 1 -- separating comma
+    else
+      local j = line:find(",", i, true)
+      fields[#fields + 1] = line:sub(i, (j or n + 1) - 1)
+      i = (j or n + 1) + 1
+    end
+  end
+  if line:sub(-1) == "," then
+    fields[#fields + 1] = ""
+  end
+  return fields
+end
+
+local function decode_cell(v)
+  if v == "" then
+    return value.NULL
+  end
+  local n = tonumber(v)
+  if n then
+    return n
+  end
+  return page_mod.decode_fm(v)
+end
+
+---FROM csv("path"): each row becomes a synthetic page
+local function csv_rows(rel, ctx)
+  local abs = rel:sub(1, 1) == "/" and rel or (ctx.root .. "/" .. rel)
+  local fd = io.open(abs, "r")
+  if not fd then
+    error(("csv(%q): file not found"):format(rel), 0)
+  end
+  local header, rows = nil, {}
+  local base = vim.fn.fnamemodify(rel, ":t:r")
+  for line in fd:lines() do
+    line = line:gsub("\r$", "")
+    if line ~= "" then
+      local cells = parse_csv_line(line)
+      if not header then
+        header = {}
+        for i, h in ipairs(cells) do
+          header[i] = vim.trim(h):lower():gsub("%s+", "-")
+        end
+      else
+        local row = {}
+        for i, key in ipairs(header) do
+          row[key] = decode_cell(vim.trim(cells[i] or ""))
+        end
+        row.file = {
+          name = ("%s#%d"):format(base, #rows + 1),
+          path = rel,
+          folder = vim.fn.fnamemodify(rel, ":h"):gsub("^%.$", ""),
+          link = value.link(rel),
+        }
+        row._path = abs
+        rows[#rows + 1] = row
+      end
+    end
+  end
+  fd:close()
+  return rows
 end
 
 ---------------------------------------------------------------- rows
@@ -356,24 +442,32 @@ function M.run(src, ctx)
   end
   local ok, result = pcall(function()
     -- FROM: first from command; absent -> whole vault
-    local set
+    local from_src
     for _, cmd in ipairs(ast.commands) do
       if cmd.cmd == "from" then
-        set = source_set(cmd.src, ctx)
+        from_src = cmd.src
         break
       end
     end
-    if not set then
-      set = {}
-      for path in pairs(ctx.index) do
-        set[path] = true
+    local rows
+    if from_src and from_src.k == "s_csv" then
+      rows = csv_rows(from_src.path, ctx)
+    else
+      local set
+      if from_src then
+        set = source_set(from_src, ctx)
+      else
+        set = {}
+        for path in pairs(ctx.index) do
+          set[path] = true
+        end
       end
-    end
-    local paths = vim.tbl_keys(set)
-    table.sort(paths)
-    local rows = {}
-    for _, path in ipairs(paths) do
-      rows[#rows + 1] = page_mod.build(path, ctx.index[path], ctx)
+      local paths = vim.tbl_keys(set)
+      table.sort(paths)
+      rows = {}
+      for _, path in ipairs(paths) do
+        rows[#rows + 1] = page_mod.build(path, ctx.index[path], ctx)
+      end
     end
     if ctx.this_path and ctx.index[ctx.this_path] then
       ctx.this = page_mod.build(ctx.this_path, ctx.index[ctx.this_path], ctx)

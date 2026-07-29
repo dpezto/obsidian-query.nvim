@@ -209,32 +209,18 @@ R.split = function(_, args)
   return value.array(vim.split(args[1], args[2], { plain = true }))
 end
 
--- PCRE -> Lua pattern shim for the common atoms; unsupported constructs -> NULL
-local function to_lua_pat(pat)
-  if pat:find("(?", 1, true) or pat:find("|", 1, true) then
-    vim.notify_once("obsidian-query dataview: unsupported regex " .. pat, vim.log.levels.WARN)
-    return nil
-  end
-  local out = pat
-    :gsub("%%", "%%%%")
-    :gsub("\\d", "%%d")
-    :gsub("\\w", "%%w")
-    :gsub("\\s", "%%s")
-    :gsub("\\b", "%%f[%%w]")
-    :gsub("\\%.", "%%.")
-  return out
-end
+-- shared PCRE-ish -> vim very-magic translator (lookarounds, alternation)
+local regex = require("obsidian-query.regex")
 
 R.regexmatch = str_fn(function(s, pat)
   if T(pat) ~= "string" then
     return NULL
   end
-  local lp = to_lua_pat(pat)
-  if not lp then
+  local re = regex.compile(pat)
+  if not re then
     return NULL
   end
-  local ok, res = pcall(string.find, s, lp)
-  return ok and res ~= nil or false
+  return re:match_str(s) ~= nil
 end)
 R.regextest = R.regexmatch
 
@@ -242,12 +228,8 @@ R.regexreplace = str_fn(function(s, pat, rep)
   if T(pat) ~= "string" or T(rep) ~= "string" then
     return NULL
   end
-  local lp = to_lua_pat(pat)
-  if not lp then
-    return NULL
-  end
-  local ok, res = pcall(string.gsub, s, lp, (rep:gsub("%$(%d)", "%%%1")))
-  return ok and res or NULL
+  local res = regex.replace(s, pat, rep)
+  return res == nil and NULL or res
 end)
 
 ---------------------------------------------------------------- arrays
@@ -542,9 +524,58 @@ R.dateformat = vectorize(function(_, args)
   return table.concat(out)
 end)
 
+-- Luxon Duration.toFormat token subset: y M d h m s S, '...' literals,
+-- token length = zero padding
 R.durationformat = function(_, args)
-  return T(args[1]) == "duration" and value.to_display(args[1]) or NULL
+  if T(args[1]) ~= "duration" or T(args[2]) ~= "string" then
+    return NULL
+  end
+  local d, fmt = args[1], args[2]
+  local comp = {
+    y = d.years,
+    M = d.months - d.years * 12,
+    d = d.days,
+    h = d.hours - d.days * 24,
+    m = d.minutes - d.hours * 60,
+    s = d.seconds - d.minutes * 60,
+    S = math.floor(d.ms % 1000),
+  }
+  local out, i = {}, 1
+  while i <= #fmt do
+    local c = fmt:sub(i, i)
+    if c == "'" then
+      local close = fmt:find("'", i + 1, true) or #fmt + 1
+      out[#out + 1] = fmt:sub(i + 1, close - 1)
+      i = close + 1
+    elseif comp[c] ~= nil then
+      local j = i
+      while fmt:sub(j + 1, j + 1) == c do
+        j = j + 1
+      end
+      out[#out + 1] = ("%0" .. (j - i + 1) .. "d"):format(comp[c])
+      i = j + 1
+    else
+      out[#out + 1] = c
+      i = i + 1
+    end
+  end
+  return table.concat(out)
 end
+
+local CURRENCY = { USD = "$", EUR = "\u{20ac}", GBP = "\u{a3}", JPY = "\u{a5}", MXN = "$" }
+R.currencyformat = vectorize(function(_, args)
+  if T(args[1]) ~= "number" then
+    return NULL
+  end
+  local code = T(args[2]) == "string" and args[2]:upper() or "USD"
+  local sym = CURRENCY[code] or (code .. " ")
+  local n = args[1]
+  local decimals = code == "JPY" and 0 or 2
+  local int = ("%d"):format(math.floor(math.abs(n)))
+  local grouped = int:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+  local frac = decimals > 0 and ("%." .. decimals .. "f"):format(math.abs(n) % 1):sub(2) or ""
+  return (n < 0 and "-" or "") .. sym .. grouped .. frac
+end)
 
 R.localtime = function(_, args)
   return args[1] -- naive local time throughout

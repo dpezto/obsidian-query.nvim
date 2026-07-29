@@ -354,4 +354,68 @@ check(eval.expr(pe("this.file.name"), ienv) == "2026-07-01", "this in inline env
 check(value.to_display(eval.expr(pe("length(file.tasks)"), ienv)) == "3", "inline call display")
 check(value.to_display(eval.expr(pe("missing.field"), ienv)) == "", "null displays empty (no mark)")
 
+---------------------------------------------------------------- durations
+group = "durations"
+local jan31 = value.parse_date("2026-01-31")
+local plus1mo = value.arith("+", jan31, value.parse_dur("1 month"))
+check(value.to_display(plus1mo) == "2026-02-28", "month shift clamps day")
+check(value.to_display(value.arith("+", value.parse_date("2024-02-29"), value.parse_dur("1 year"))) == "2025-02-28", "year shift clamps leap day")
+check(value.parse_dur("1 mo").months == 1 and value.parse_dur("2 years").months == 24, "symbolic months")
+check(value.to_display(value.parse_dur("14 months, 3 days")) == "1 year, 2 months, 3 days", "hybrid display")
+check(value.cmp(value.parse_dur("1 month"), value.parse_dur("29 days")) == 1, "approx ordering")
+check(value.to_display(value.arith("-", value.parse_date("2026-03-31"), value.parse_dur("1 month"))) == "2026-02-28", "month subtraction clamps")
+
+---------------------------------------------------------------- regex
+group = "regex"
+check(F.regexmatch(env, { "foo", "foo|bar" }) == true, "alternation")
+check(F.regexmatch(env, { "foobar", "foo(?=bar)" }) == true, "lookahead")
+check(F.regexmatch(env, { "foobaz", "foo(?=bar)" }) == false, "negative lookahead miss")
+check(F.regexmatch(env, { "xbar", "(?<=x)bar" }) == true, "lookbehind")
+check(F.regexreplace(env, { "john smith", "(\\w+) (\\w+)", "$2 $1" }) == "smith john", "backref replace")
+check(F.regexmatch(env, { "a@b.com", "\\w+@\\w+" }) == true, "literal @")
+
+---------------------------------------------------------------- formats
+group = "formats"
+check(F.durationformat(env, { value.parse_dur("1 year, 2 months, 3 days"), "y'y' M'mo' d'd'" }) == "1y 2mo 3d", "durationformat tokens")
+check(F.durationformat(env, { value.parse_dur("90 minutes"), "h:mm" }) == "1:30", "durationformat padding")
+check(F.currencyformat(env, { 1234.5 }) == "$1,234.50", "currencyformat default USD")
+check(F.currencyformat(env, { -1234.5, "EUR" }) == "-\u{20ac}1,234.50", "currencyformat EUR negative")
+
+---------------------------------------------------------------- csv + starred + dup fields
+group = "sources"
+local tmp = vim.fn.tempname()
+vim.fn.mkdir(tmp .. "/.obsidian", "p")
+local fd = io.open(tmp .. "/data.csv", "w")
+fd:write('name,score,when\n"Smith, J",9.5,2026-07-01\nDoe,7,2026-06-01\n')
+fd:close()
+fd = io.open(tmp .. "/.obsidian/bookmarks.json", "w")
+fd:write('{"items":[{"type":"file","path":"Bitacora/2026-07-01.md"},{"type":"group","items":[{"type":"file","path":"Papers/reading.md"}]}]}')
+fd:close()
+
+local cres = query.run('TABLE score, when FROM csv("data.csv") SORT score DESC', { index = {}, root = tmp })
+check(cres.ok, "csv query runs: " .. (cres.msg or ""))
+check(#cres.data.rows == 2 and cres.data.rows[1].cells[1] == 9.5, "csv rows sorted")
+check(value.typeof(cres.data.rows[1].cells[2]) == "date", "csv dates decoded")
+check(cres.data.rows[1].id ~= nil, "csv row id link")
+local cerr = query.run('LIST FROM #a AND csv("data.csv")', { index = {}, root = tmp })
+check(not cerr.ok and cerr.msg:find("only FROM source"), "csv nested rejected")
+cerr = query.run('LIST FROM csv("nope.csv")', { index = {}, root = tmp })
+check(not cerr.ok and cerr.msg:find("not found"), "missing csv reported")
+
+local idx_mod = require("obsidian-query.index")
+local starred = idx_mod._read_starred(tmp)
+check(starred["Bitacora/2026-07-01.md"] and starred["Papers/reading.md"], "bookmarks incl. groups")
+local sctx = vim.tbl_extend("force", {}, CTX, { starred = starred })
+local spg = page_mod.build(ROOT .. "/Bitacora/2026-07-01.md", INDEX[ROOT .. "/Bitacora/2026-07-01.md"], sctx)
+check(spg.file.starred == true, "file.starred true")
+check(pg.file.starred == false, "file.starred false without bookmarks")
+local dupmd = tmp .. "/dup.md"
+fd = io.open(dupmd, "w")
+fd:write("author:: Alice\nauthor:: Bob\nsingle:: uno\n")
+fd:close()
+local sup2 = idx_mod._extract_sup(dupmd)
+check(type(sup2.fields.author) == "table" and #sup2.fields.author == 2, "repeated inline keys -> array")
+check(sup2.fields.single == "uno", "single key stays scalar")
+vim.fn.delete(tmp, "rf")
+
 io.write(("all %d checks passed\n"):format(n_ok))

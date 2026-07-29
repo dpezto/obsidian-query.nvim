@@ -15,6 +15,33 @@ local M = {}
 local sup = {} ---@type table<string, {mtime: integer, fields: table, headers: table}>
 local BATCH = 25
 
+---Obsidian bookmarks (.obsidian/bookmarks.json) -> set of vault-relative paths
+local function read_starred(root)
+  local fd = io.open(root .. "/.obsidian/bookmarks.json", "r")
+  if not fd then
+    return {}
+  end
+  local raw = fd:read("*a")
+  fd:close()
+  local ok, data = pcall(vim.json.decode, raw)
+  if not ok or type(data) ~= "table" then
+    return {}
+  end
+  local starred = {}
+  local function walk(items)
+    for _, item in ipairs(items or {}) do
+      if item.type == "file" and item.path then
+        starred[item.path] = true
+      elseif item.type == "group" then
+        walk(item.items)
+      end
+    end
+  end
+  walk(data.items)
+  return starred
+end
+M._read_starred = read_starred -- test hook
+
 local function extract_sup(path)
   local fd = io.open(path, "r")
   if not fd then
@@ -31,20 +58,32 @@ local function extract_sup(path)
       if hashes then
         headers[#headers + 1] = { line = lnum, level = #hashes, text = text }
       end
+      -- repeated keys accumulate into arrays (dataview merges duplicates)
+      local function add_field(key, val)
+        local cur = fields[key]
+        if cur == nil then
+          fields[key] = val
+        elseif type(cur) == "table" then
+          table.insert(cur, val)
+        else
+          fields[key] = { cur, val }
+        end
+      end
       -- full-line field: `Key:: value`
       local k, v = line:match("^([%w][%w%s_/%-]-)::%s*(.*)$")
       if k then
-        fields[vim.trim(k):lower():gsub("%s+", "-")] = v
+        add_field(vim.trim(k):lower():gsub("%s+", "-"), v)
       end
       -- bracketed inline fields: [key:: v] / (key:: v)
       for bk, bv in line:gmatch("[%[%(]([%w][%w%s_/%-]-)::%s*([^%]%)]*)[%]%)]") do
-        fields[vim.trim(bk):lower():gsub("%s+", "-")] = vim.trim(bv)
+        add_field(vim.trim(bk):lower():gsub("%s+", "-"), vim.trim(bv))
       end
     end
   end
   fd:close()
   return { fields = fields, headers = headers }
 end
+M._extract_sup = extract_sup
 
 ---Resolve a links_out target (note name or rel path) to an absolute path.
 local function make_resolver(rows)
@@ -122,7 +161,7 @@ function M.get(ctx, cb)
       if i <= #stale then
         vim.schedule(step)
       else
-        cb({ rows = rows, sup = sup, inlinks = inlinks, root = ctx.root })
+        cb({ rows = rows, sup = sup, inlinks = inlinks, root = ctx.root, starred = read_starred(ctx.root) })
       end
     end
     step()

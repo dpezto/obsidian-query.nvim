@@ -210,6 +210,7 @@ function M.build(abs_path, row, ctx)
     end, row.tags or {})),
     aliases = value.array(vim.deepcopy(row.aliases or {})),
     tasks = tasks,
+    starred = (ctx.starred and ctx.starred[rel]) or false,
     lists = tasks, -- cache indexes only checkbox items; documented limitation
     outlinks = value.array(outlinks),
     inlinks = value.array(inlinks),

@@ -198,30 +198,10 @@ local function find_plain(text, term, case)
   return (hay:find(needle, 1, true))
 end
 
-local regex_cache = {}
--- JS-regex-ish -> vim very-magic. Approximate: \d \w \s + ? | () carry over;
--- (?:...) becomes %(...); lookarounds are unsupported (pattern matches nothing).
+-- shared PCRE-ish -> vim very-magic translator (lookarounds, alternation)
 local function get_regex(pat, flags, case)
-  local ci = flags:find("i") or case == "insensitive"
-  local key = pat .. "\0" .. (ci and "i" or "")
-  local hit = regex_cache[key]
-  if hit ~= nil then
-    return hit or nil
-  end
-  if pat:find("(?=", 1, true) or pat:find("(?!", 1, true) or pat:find("(?<", 1, true) then
-    vim.notify_once("obsidian-query: lookarounds unsupported in /regex/: " .. pat, vim.log.levels.WARN)
-    regex_cache[key] = false
-    return nil
-  end
-  local vimpat = "\\v" .. (ci and "\\c" or "") .. pat:gsub("%(%?:", "%%(")
-  local ok, re = pcall(vim.regex, vimpat)
-  if not ok then
-    vim.notify_once("obsidian-query: bad /regex/: " .. pat, vim.log.levels.WARN)
-    regex_cache[key] = false
-    return nil
-  end
-  regex_cache[key] = re
-  return re
+  local ci = (flags:find("i") ~= nil) or case == "insensitive"
+  return require("obsidian-query.regex").compile(pat, ci)
 end
 
 -- leaf match over an array of {lnum, text}; returns ok, locs

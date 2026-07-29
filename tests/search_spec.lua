@@ -124,6 +124,7 @@ check(run("(nadaqueverconesto OR bombeo) potencia"), "parens + AND")
 ---------------------------------------------------------------- eval: ops
 group = "ops"
 check(run("file:2026-07"), "file:")
+check(run("file:.md"), "file: matches the extension")
 check(not run("file:2025"), "file: miss")
 check(run("path:Bitacora"), "path:")
 check(run("content:potencia"), "content:")
@@ -153,5 +154,19 @@ check(not run("[lang:en]"), "prop value miss")
 check(run("[priority:3]"), "numeric prop")
 check(not run("[missing]"), "prop missing")
 check(run("ignore-case:(POTENCIA)"), "ignore-case:")
+
+---------------------------------------------------------------- attachments
+-- non-md vault files are matchable by path/filename only (never read)
+group = "attachments"
+check(eval.label("/vault/Coding/a.png") == "a.png", "attachment label keeps extension")
+check(eval.label("/vault/Coding/a.md") == "a", "note label drops .md")
+local att = eval.note("/vault/Coding/img.png", "Coding/img.png", "")
+local function runa(q)
+  return (eval.run(assert(parser.parse(q)), att))
+end
+check(runa("path:Coding"), "attachment matches path:")
+check(runa("file:img.png"), "attachment matches file: with extension")
+check(not runa("potencia"), "attachment has no content to match")
+check(not runa("line:(potencia)"), "content operator misses attachment")
 
 io.write(("all %d checks passed\n"):format(n_ok))

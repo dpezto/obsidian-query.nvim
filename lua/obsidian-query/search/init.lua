@@ -38,7 +38,7 @@ function M.run(spec, ctx, cb)
     cb({ error = spec.error })
     return
   end
-  vim.system({ "rg", "--files", "--glob", "*.md", ctx.root }, { text = true }, function(out)
+  vim.system({ "rg", "--files", ctx.root }, { text = true }, function(out)
     local paths = vim.split(out.stdout or "", "\n", { trimempty = true })
     table.sort(paths, function(a, b) -- newest first for date-named notes
       return a > b
@@ -49,16 +49,20 @@ function M.run(spec, ctx, cb)
       while i <= stop do
         local path = paths[i]
         i = i + 1
-        local fd = io.open(path, "r")
-        if fd then
-          local content = fd:read("*a")
-          fd:close()
-          local rel = path:sub(#ctx.root + 2)
-          local ok, locs = eval.run(spec.ast, eval.note(path, rel, content))
-          if ok then
-            files[#files + 1] = { path = path, matches = locs }
-            total = total + #locs
+        -- attachments are matchable by path/filename only, so never read them
+        local content = ""
+        if path:sub(-3) == ".md" then
+          local fd = io.open(path, "r")
+          if fd then
+            content = fd:read("*a")
+            fd:close()
           end
+        end
+        local rel = path:sub(#ctx.root + 2)
+        local ok, locs = eval.run(spec.ast, eval.note(path, rel, content))
+        if ok then
+          files[#files + 1] = { path = path, matches = locs }
+          total = total + #locs
         end
       end
       if i <= #paths then
@@ -87,7 +91,7 @@ function M.lines(result)
     local f = result.files[fi]
     lines[#lines + 1] = {
       { "▏ ", "RenderMarkdownBullet" },
-      { vim.fn.fnamemodify(f.path, ":t:r"), "RenderMarkdownLink" },
+      { eval.label(f.path), "RenderMarkdownLink" },
     }
     if show_matches then
       for j = 1, math.min(#f.matches, MAX_MATCH_LINES) do
@@ -123,7 +127,7 @@ function M.pick(spec, _, result)
   end
   local items = {}
   for _, f in ipairs(result.files) do
-    local name = vim.fn.fnamemodify(f.path, ":t:r")
+    local name = eval.label(f.path)
     if #f.matches == 0 then
       items[#items + 1] = {
         file = f.path,
@@ -143,8 +147,12 @@ function M.pick(spec, _, result)
     end
   end
   local style = require("obsidian-query.config").opts.picker.style
+  local q = spec.body:gsub("%s+", " ")
+  if #q > 30 then
+    q = q:sub(1, 29) .. "…"
+  end
   Snacks.picker({
-    title = spec.body:gsub("%s+", " "),
+    title = ("Search · %s (%d)"):format(q, #items),
     items = items,
     format = style == "rich" and function(item)
       return item.display

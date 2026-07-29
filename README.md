@@ -3,7 +3,7 @@
 Live [Obsidian](https://obsidian.md) queries inside Neovim — no Obsidian
 required.
 
-Renders Obsidian's ` ```query ` (core Search) and ` ```dataview `
+Renders Obsidian's `query` (core Search) and  `dataview`
 ([Dataview](https://github.com/blacksmithgu/obsidian-dataview) DQL) code
 fences as inline results, exactly where Obsidian would render them. Both
 query languages are re-implemented in pure Lua and evaluated against your
@@ -19,7 +19,9 @@ path:Bitacora tag:#project       ▏ 2026-07-03
 - **Search fences** — the full core-Search query language: terms, phrases,
   `/regex/`, `OR`/`-`/`(...)`, `tag:` `path:` `file:` `content:` `line:()`
   `section:()` `block:()` `task:` `[property]`, smart case. Matched lines
-  render under each note.
+  render under each note. Like Obsidian, every vault file is matchable by
+  `path:` / `file:` / bare filename — attachments included; content
+  operators only ever hit notes.
 - **Dataview fences** — DQL `TABLE` / `LIST` / `TASK` / `CALENDAR` with
   `FROM` / `WHERE` / `SORT` / `GROUP BY` / `FLATTEN` / `LIMIT`, a full
   expression language with lambdas, ~60 functions, typed dates / durations
@@ -54,8 +56,7 @@ ever contain the query.
   ```
 - [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim)
 - [snacks.nvim](https://github.com/folke/snacks.nvim) (pickers)
-- [ripgrep](https://github.com/BurntSushi/ripgrep) (already required by
-  obsidian.nvim)
+- [ripgrep](https://github.com/BurntSushi/ripgrep) (already required by obsidian.nvim)
 
 ## Installation
 
@@ -65,7 +66,6 @@ ever contain the query.
 {
   "dpezto/obsidian-query.nvim",
   ft = "markdown",
-  opts = {},
 }
 ```
 
@@ -115,7 +115,7 @@ Defaults:
 opts = {
   picker = {
     -- "file": snacks' stock file formatter (paths + icons)
-    -- "rich": query-shaped rows (dates, table cells, task text)
+    -- "rich": query-shaped rows (dates, table cells, source note + task text)
     style = "file",
   },
   -- Cap inline-rendered rows; excess becomes a "+N more — <CR> for all"
@@ -128,8 +128,8 @@ Keymaps are buffer-local to vault notes and set automatically:
 
 | Mapping | Action |
 |---|---|
-| `<CR>` | On a query/dataview fence: open results in a picker. Elsewhere: obsidian.nvim's smart action, unchanged. |
-| `<2-LeftMouse>` | On a calendar day with notes: picker of that day's notes. Elsewhere: default double-click. |
+| `<CR>` | On a query/dataview fence: open results in a picker, titled by query kind and source — `TABLE · "Coding" (24)`. Elsewhere: obsidian.nvim's smart action, unchanged. |
+| `<2-LeftMouse>` | On a calendar day with notes: picker of that day's notes, titled `Notes · 2026-07-29`. Elsewhere: default double-click. |
 
 ## Examples
 

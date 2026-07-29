@@ -418,4 +418,13 @@ check(type(sup2.fields.author) == "table" and #sup2.fields.author == 2, "repeate
 check(sup2.fields.single == "uno", "single key stays scalar")
 vim.fn.delete(tmp, "rf")
 
+---------------------------------------------------------------- picker title
+group = "title"
+local fres = run('TABLE file.name FROM "Bitacora"')
+check(fres.ok and fres.data.from and fres.data.from.k == "s_folder", "FROM folder exposed on result")
+check(fres.data.from.folder == "Bitacora", "folder name kept for the title")
+local tagres = run("LIST FROM #bitácora")
+check(tagres.data.from.k == "s_tag" and tagres.data.from.tag == "bitácora", "FROM tag exposed")
+check(run("LIST").data.from == nil, "no FROM -> no source on result")
+
 io.write(("all %d checks passed\n"):format(n_ok))

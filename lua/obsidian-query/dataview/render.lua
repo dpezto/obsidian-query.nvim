@@ -195,7 +195,12 @@ function M.calendar_lines(data)
       }
       if hit then
         -- "▏ " = 2 display cols, each cell 3 wide
-        cellmap[#cellmap + 1] = { s = 2 + cells * 3 + 1, e = 2 + (cells + 1) * 3, paths = hit }
+        cellmap[#cellmap + 1] = {
+          s = 2 + cells * 3 + 1,
+          e = 2 + (cells + 1) * 3,
+          paths = hit,
+          date = ("%04d-%02d-%02d"):format(m.year, m.month, day),
+        }
       end
       cells = cells + 1
       if (first_wd + day) % 7 == 0 or day == ndays then

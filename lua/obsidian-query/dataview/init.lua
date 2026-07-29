@@ -42,6 +42,27 @@ local function note_name(path)
   return vim.fn.fnamemodify(path, ":t:r")
 end
 
+-- Short readable FROM source for the picker title.
+-- ponytail: leaf sources only; combinators (and/or/not) are too long to fit
+local function source_label(src)
+  local s
+  if src.k == "s_tag" then
+    s = "#" .. src.tag
+  elseif src.k == "s_folder" then
+    s = '"' .. src.folder .. '"'
+  elseif src.k == "s_csv" then
+    s = src.path
+  elseif src.k == "s_link" then
+    s = "[[" .. src.raw .. "]]"
+  elseif src.k == "s_outgoing" then
+    s = "outgoing([[" .. src.raw .. "]])"
+  end
+  if s and #s > 30 then
+    s = s:sub(1, 29) .. "…"
+  end
+  return s
+end
+
 -- items carry `display` (snacks Highlight[]) so the picker shows query
 -- results, not raw file paths; `text` stays the fuzzy-match string
 local function open_items(title, items)
@@ -99,12 +120,13 @@ function M.pick(spec, ctx, result)
       for _, task in ipairs(group.items) do
         items[#items + 1] = {
           file = task.path,
-          text = task.text .. " " .. note_name(task.path),
+          text = note_name(task.path) .. " " .. task.text,
           pos = { task.line, 0 },
           display = {
+            { note_name(task.path), "Directory" },
+            { "  " },
             { task.completed and "󰄲 " or "󰄱 ", task.completed and "Comment" or "Special" },
             { task.text, task.completed and "Comment" or "Normal" },
-            { "  " .. note_name(task.path), "Directory" },
           },
         }
       end
@@ -121,7 +143,9 @@ function M.pick(spec, ctx, result)
       end
     end
   end
-  open_items(spec.body:gsub("%s+", " "):sub(1, 60), items)
+  local label = data.from and source_label(data.from)
+  local title = data.kind:upper() .. (label and (" · " .. label) or "")
+  open_items(("%s (%d)"):format(title, #items), items)
 end
 
 ---Double-click on a calendar day cell -> picker of that day's notes.
@@ -142,7 +166,7 @@ function M.click(result, vidx, col)
           display = { { note_name(p), "Directory" } },
         }
       end
-      open_items("Notes that day", items)
+      open_items("Notes · " .. cell.date, items)
       return true
     end
   end

@@ -491,7 +491,9 @@ function M.run(src, ctx)
       return c.cmd ~= "from"
     end, ast.commands)
     rows = run_commands(rows, cmds, ctx)
-    return project(ast.header, rows, ctx)
+    local data = project(ast.header, rows, ctx)
+    data.from = from_src -- source node, for the picker title
+    return data
   end)
   if not ok then
     return { ok = false, phase = "eval", msg = tostring(result) }

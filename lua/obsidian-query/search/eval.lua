@@ -17,11 +17,18 @@ local TASK_PATTERNS = {
 local Note = {}
 Note.__index = Note
 
+---Display label: notes lose the .md, attachments keep their extension.
+---(`file:` and bare terms match `note.name`, the full basename, so
+---`file:.md` behaves as in Obsidian.)
+function M.label(path)
+  return vim.fn.fnamemodify(path, path:sub(-3) == ".md" and ":t:r" or ":t")
+end
+
 function M.note(path, rel, content)
   return setmetatable({
     path = path,
     rel = rel,
-    name = vim.fn.fnamemodify(path, ":t:r"),
+    name = vim.fn.fnamemodify(path, ":t"),
     lines = vim.split(content, "\n", { plain = true }),
   }, Note)
 end

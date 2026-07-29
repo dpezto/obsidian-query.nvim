@@ -10,7 +10,7 @@ query languages are re-implemented in pure Lua and evaluated against your
 vault's markdown files, so results are always live — Obsidian never runs.
 
 ```
-```query                          ▏ 2026-07-28
+```query                         ▏ 2026-07-28
 path:Bitacora tag:#project       ▏ 2026-07-03
 ```                    ──────▶   ▏ 2026-06-26
                                  ▏ 3 notes
@@ -125,6 +125,10 @@ opts = {
 }
 ```
 
+Multiple vaults: results always follow the buffer. Opening a note from
+another vault switches obsidian.nvim's active workspace to it and
+re-renders — queries never show a different vault's results.
+
 Keymaps are buffer-local to vault notes and set automatically:
 
 | Mapping | Action |
@@ -133,6 +137,7 @@ Keymaps are buffer-local to vault notes and set automatically:
 | `<LeftMouse>` | Single click on a calendar day with notes: picker of that day's notes, titled `Notes · 2026-07-29`. On the `‹` / `›` header arrows: previous/next month. On the month label: back to today. Elsewhere: normal click. |
 | `<Left>` / `<Right>` | On a calendar fence: previous/next month. Elsewhere: unchanged. |
 | `<Home>` | On a calendar fence: back to the current month. Elsewhere: unchanged. |
+| `<C-t>` | In a TASK picker: toggle the selected task's checkbox in its file. |
 
 ## Examples
 
@@ -246,12 +251,12 @@ classes, `\b`, non-capturing groups and all four lookarounds work;
 - No `dataviewjs` — that is JavaScript and needs Obsidian's runtime.
 - Array indexing is 1-based (Lua convention; Dataview's is 0-based).
 - Dates are naive local time — no timezones or millisecond precision.
-- `file.lists` currently equals `file.tasks` (only checkbox items are
-  indexed).
+- Plain items in `file.lists` carry no `children`/`parent` nesting (tasks
+  do).
 - Regex patterns with in-pattern backreferences, named groups or inline
   flags are rejected (a one-time warning, the pattern matches nothing).
-- Results are virtual lines: the cursor cannot enter them (use the `<CR>`
-  picker), and task checkboxes in results are not clickable.
+- Results are virtual lines: the cursor cannot enter them — use the `<CR>`
+  picker, where `<C-t>` toggles TASK checkboxes.
 
 ## How it works
 

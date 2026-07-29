@@ -73,18 +73,19 @@ end
 ---as query rows, not raw file paths; `text` stays the fuzzy-match string.
 ---@param title string
 ---@param items table[]
-function M.picker(title, items)
+---@param opts table? extra Snacks.picker config (actions, keys, ...)
+function M.picker(title, items, opts)
   if #items == 0 then
     return
   end
   local style = require("obsidian-query.config").opts.picker.style
-  Snacks.picker({
+  Snacks.picker(vim.tbl_deep_extend("force", {
     title = title,
     items = items,
     format = style == "rich" and function(item)
       return item.display
     end or "file",
-  })
+  }, opts or {}))
 end
 
 ---render-markdown silently drops render calls that arrive while a render is in

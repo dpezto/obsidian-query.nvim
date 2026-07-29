@@ -40,6 +40,22 @@ function M.check()
     h.warn("obsidian.nvim cache not ready yet (still indexing?)")
   else
     h.ok(("obsidian.nvim cache ready (%d notes)"):format(cache.notes.count()))
+    -- the cache serving a different vault than the active workspace renders
+    -- every query empty — the classic symptom after a workspace switch
+    local active = _G.Obsidian and Obsidian.workspace and vim.fs.normalize(tostring(Obsidian.workspace.path))
+    if active then
+      local any, matching = false, false
+      for path in pairs(cache.notes.all()) do
+        any = true
+        if vim.startswith(path, active .. "/") then
+          matching = true
+          break
+        end
+      end
+      if any and not matching then
+        h.error("cache rows belong to a different vault than the active workspace — queries will be empty")
+      end
+    end
     -- probe a row that has tasks (rows without tasks may omit the key)
     local probe, tasked
     for _, row in pairs(cache.notes.all()) do

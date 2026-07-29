@@ -63,6 +63,58 @@ end
 
 local open_items = base.picker
 
+---Flip a checkbox line: `[ ]` <-> `[x]` (any non-blank state resets to open).
+---@param line string
+---@return string? toggled nil when the line holds no checkbox
+function M.toggle_task_line(line)
+  local pre, state, post = line:match("^(%s*.-%[)([^%]])(%].*)$")
+  if not pre then
+    return nil
+  end
+  return pre .. (state == " " and "x" or " ") .. post
+end
+
+-- <C-t> in the TASK picker: toggle the checkbox in its file (through the
+-- buffer, so open buffers stay consistent; :write fires the cache-stale
+-- autocmds and the next render picks the change up)
+local function toggle_task(picker, item)
+  if not (item and item.pos and item.file) then
+    return
+  end
+  local buf = vim.fn.bufadd(item.file)
+  vim.fn.bufload(buf)
+  local lnum = item.pos[1]
+  local line = vim.api.nvim_buf_get_lines(buf, lnum - 1, lnum, false)[1]
+  local toggled = line and M.toggle_task_line(line)
+  if not toggled then
+    return
+  end
+  vim.bo[buf].buflisted = true
+  vim.api.nvim_buf_set_lines(buf, lnum - 1, lnum, false, { toggled })
+  vim.api.nvim_buf_call(buf, function()
+    vim.cmd("silent write")
+  end)
+  -- reflect it in the open picker row (display segs 3/4 = checkbox, text)
+  local done = toggled:match("^%s*.-%[[^ ]%]") ~= nil
+  item.display[3] = { done and "󰄲 " or "󰄱 ", done and "Comment" or "Special" }
+  item.display[4][2] = done and "Comment" or "Normal"
+  pcall(function()
+    picker.list.dirty = true -- render() is a no-op unless marked dirty
+    picker.list:render()
+  end)
+  pcall(function()
+    picker.preview:refresh(picker) -- drop the memoized item so the file re-reads
+  end)
+end
+
+local TASK_PICKER_OPTS = {
+  actions = { toggle_task = toggle_task },
+  win = {
+    input = { keys = { ["<c-t>"] = { "toggle_task", mode = { "n", "i" }, desc = "Toggle task" } } },
+    list = { keys = { ["<c-t>"] = { "toggle_task", desc = "Toggle task" } } },
+  },
+}
+
 function M.pick(spec, ctx, result)
   if not result.ok then
     return
@@ -116,8 +168,10 @@ function M.pick(spec, ctx, result)
       end
     end
   elseif data.kind == "calendar" then
+    -- only the month on screen, matching the one-month inline view
+    local shown = dv_render.view_month(data, result.view)
     for _, d in ipairs(data.dated) do
-      if d.path ~= "" then
+      if d.path ~= "" and d.date.year == shown.year and d.date.month == shown.month then
         local date = value.to_display(d.date)
         items[#items + 1] = {
           file = d.path,
@@ -126,10 +180,12 @@ function M.pick(spec, ctx, result)
         }
       end
     end
+    open_items(("CALENDAR · %s (%d)"):format(shown.label, #items), items)
+    return
   end
   local label = data.from and source_label(data.from)
   local title = data.kind:upper() .. (label and (" · " .. label) or "")
-  open_items(("%s (%d)"):format(title, #items), items)
+  open_items(("%s (%d)"):format(title, #items), items, data.kind == "task" and TASK_PICKER_OPTS or nil)
 end
 
 ---Shift a calendar's shown month (<Left>/<Right>); no-op for other results.

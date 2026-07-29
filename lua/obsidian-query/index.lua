@@ -45,15 +45,20 @@ M._read_starred = read_starred -- test hook
 local function extract_sup(path)
   local fd = io.open(path, "r")
   if not fd then
-    return { fields = {}, headers = {} }
+    return { fields = {}, headers = {}, lists = {} }
   end
-  local fields, headers = {}, {}
-  local lnum, in_fence = 0, false
+  local fields, headers, lists = {}, {}, {}
+  local lnum, in_fence, in_fm = 0, false, false
   for line in fd:lines() do
     lnum = lnum + 1
-    if line:match("^%s*```") then
+    -- frontmatter delimiters: YAML `- item` lines must not count as lists
+    if lnum == 1 and line == "---" then
+      in_fm = true
+    elseif in_fm and (line:match("^%-%-%-%s*$") or line:match("^%.%.%.%s*$")) then
+      in_fm = false
+    elseif line:match("^%s*```") then
       in_fence = not in_fence
-    elseif not in_fence then
+    elseif not in_fence and not in_fm then
       local hashes, text = line:match("^(#+)%s+(.*)$")
       if hashes then
         headers[#headers + 1] = { line = lnum, level = #hashes, text = text }
@@ -78,10 +83,18 @@ local function extract_sup(path)
       for bk, bv in line:gmatch("[%[%(]([%w][%w%s_/%-]-)::%s*([^%]%)]*)[%]%)]") do
         add_field(vim.trim(bk):lower():gsub("%s+", "-"), vim.trim(bv))
       end
+      -- list items (bulleted or numbered); the cache only indexes checkboxes
+      local ws, text = line:match("^(%s*)[%-%*%+]%s+(.+)$")
+      if not ws then
+        ws, text = line:match("^(%s*)%d+[%.%)]%s+(.+)$")
+      end
+      if ws then
+        lists[#lists + 1] = { line = lnum, indent = #ws, text = text }
+      end
     end
   end
   fd:close()
-  return { fields = fields, headers = headers }
+  return { fields = fields, headers = headers, lists = lists }
 end
 M._extract_sup = extract_sup
 

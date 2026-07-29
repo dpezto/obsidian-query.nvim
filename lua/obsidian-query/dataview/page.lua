@@ -100,6 +100,7 @@ function M.build_tasks(abs_path, cache_tasks, headers, rel)
     end
     local task = value.task({
       text = ct.text or "",
+      task = true, -- dataview: distinguishes tasks inside file.lists
       status = ct.state or " ",
       checked = ct.state ~= " ",
       completed = ct.state == "x" or ct.state == "X",
@@ -146,6 +147,52 @@ function M.build_tasks(abs_path, cache_tasks, headers, rel)
     end
   end
   return value.array(tasks)
+end
+
+---file.lists: every list item (Dataview semantics — tasks included). Checkbox
+---items reuse their task object; plain bullets get a light sibling shape.
+---Falls back to tasks alone when the supplement predates list indexing.
+---@param sup {lists?: {line: integer, indent: integer, text: string}[], headers: table[]}
+---@param tasks table value.array of tasks
+---@param abs_path string
+---@param rel string
+---@return table value.array
+function M.build_lists(sup, tasks, abs_path, rel)
+  if not sup.lists then
+    return tasks
+  end
+  local by_line = {}
+  for _, t in ipairs(tasks) do
+    by_line[t.line] = t
+  end
+  local lists = {}
+  for _, li in ipairs(sup.lists) do
+    local t = by_line[li.line]
+    if t then
+      lists[#lists + 1] = t
+    else
+      local section
+      for i = #(sup.headers or {}), 1, -1 do
+        if sup.headers[i].line < li.line then
+          section = sup.headers[i]
+          break
+        end
+      end
+      -- ponytail: no children/parent nesting for plain bullets; tasks keep it
+      lists[#lists + 1] = value.task({
+        text = li.text,
+        task = false,
+        line = li.line,
+        indent = li.indent,
+        path = abs_path,
+        section = section
+            and value.link(rel, { subpath = section.text, kind = "header", display = section.text })
+          or value.link(rel),
+        link = value.link(rel, section and { subpath = section.text, kind = "header" } or nil),
+      })
+    end
+  end
+  return value.array(lists)
 end
 
 ---@param abs_path string
@@ -211,7 +258,7 @@ function M.build(abs_path, row, ctx)
     aliases = value.array(vim.deepcopy(row.aliases or {})),
     tasks = tasks,
     starred = (ctx.starred and ctx.starred[rel]) or false,
-    lists = tasks, -- cache indexes only checkbox items; documented limitation
+    lists = M.build_lists(sup, tasks, abs_path, rel),
     outlinks = value.array(outlinks),
     inlinks = value.array(inlinks),
     frontmatter = row.properties or {},

@@ -68,6 +68,12 @@ local SUP = {
   [ROOT .. "/Bitacora/2026-07-01.md"] = {
     fields = { ["session-goal"] = "characterize MTS" },
     headers = { { line = 5, level = 1, text = "Plan" }, { line = 9, level = 2, text = "Tareas" } },
+    lists = {
+      { line = 6, indent = 0, text = "idea suelta" },
+      { line = 10, indent = 0, text = "[ ] alinear #lab [due:: 2026-08-15]" },
+      { line = 11, indent = 2, text = "[x] sub uno" },
+      { line = 13, indent = 0, text = "[x] calibrar 📅 2026-07-30" },
+    },
   },
 }
 local INLINKS = {
@@ -208,6 +214,10 @@ check(ev("length(file.aliases) = 1") == true, "aliases")
 check(ev("length(file.inlinks) = 1") == true, "inlinks")
 check(ev("length(file.outlinks) = 1") == true, "outlinks")
 check(ev("length(file.tasks) = 3") == true, "tasks present")
+check(ev("length(file.lists) = 4") == true, "lists = plain bullets + tasks")
+check(ev("length(filter(file.lists, (l) => !l.task)) = 1") == true, "plain bullet marked task=false")
+check(ev('first(filter(file.lists, (l) => !l.task)).text = "idea suelta"') == true, "plain bullet text")
+check(ev("all(map(file.tasks, (t) => t.task))") == true, "tasks carry task=true")
 check(ev("any(map(file.tasks, (t) => !t.checked))") == true, "lambda over tasks")
 check(ev("none(list(false, false))") == true and ev("none(list(true))") == false, "none()")
 check(ev('startswith("abc", "z")') == false, "call returning false stays false, not null")
@@ -349,6 +359,13 @@ check(base_render.key("<F5>") == "<F5> ", "unknown keys stay literal")
 for _, lhs in ipairs({ "<Left>", "<Right>", "<CR>", "<Home>", "<F5>" }) do
   check(base_render.key(lhs):sub(-1) == " ", "key hint padded: " .. lhs)
 end
+
+-- view_month resolves an offset to a labelled month
+local vm_data = { today = { year = 2026, month = 7, day = 28 } }
+local vm = dv_render.view_month(vm_data, 0)
+check(vm.year == 2026 and vm.month == 7 and vm.label == "July 2026", "view_month at offset 0")
+check(dv_render.view_month(vm_data, 2).label == "September 2026", "view_month offset crosses months")
+check(dv_render.view_month(vm_data, -7).label == "December 2025", "view_month offset crosses years")
 
 -- day cells are heat-mapped by note count over the shown month
 local function heat_of(days)
@@ -584,7 +601,26 @@ fd:close()
 local sup2 = idx_mod._extract_sup(dupmd)
 check(type(sup2.fields.author) == "table" and #sup2.fields.author == 2, "repeated inline keys -> array")
 check(sup2.fields.single == "uno", "single key stays scalar")
+-- list extraction: bullets and numbered outside fences/frontmatter only
+local listmd = tmp .. "/lists.md"
+fd = io.open(listmd, "w")
+fd:write("---\ntags:\n  - yaml-item\n---\n# H\n- uno\n  - dos\n3) tres\n```\n- fenced\n```\n- [ ] box\n")
+fd:close()
+local sup3 = idx_mod._extract_sup(listmd)
+check(#sup3.lists == 4, "yaml + fenced bullets excluded, box included")
+check(sup3.lists[1].text == "uno" and sup3.lists[2].indent == 2, "list text + indent")
+check(sup3.lists[3].text == "tres", "numbered list item")
+check(sup3.lists[4].text == "[ ] box", "checkbox line still recorded (paired with its task by line)")
 vim.fn.delete(tmp, "rf")
+
+---------------------------------------------------------------- task toggle
+group = "toggle"
+local dv_engine = require("obsidian-query.dataview")
+check(dv_engine.toggle_task_line("- [ ] hacer algo") == "- [x] hacer algo", "open -> done")
+check(dv_engine.toggle_task_line("  - [x] hecho") == "  - [ ] hecho", "done -> open")
+check(dv_engine.toggle_task_line("3. [/] parcial") == "3. [ ] parcial", "custom state resets to open")
+check(dv_engine.toggle_task_line("plain prose line") == nil, "no checkbox -> nil")
+check(dv_engine.toggle_task_line("- [ ] outer [x] inner") == "- [x] outer [x] inner", "first checkbox wins")
 
 ---------------------------------------------------------------- picker title
 group = "title"

@@ -1,0 +1,189 @@
+*obsidian-query.txt*    Live Obsidian query/dataview fences inside Neovim
+
+Author: Dai López
+License: MIT
+
+==============================================================================
+CONTENTS                                                *obsidian-query*
+
+  1. Introduction ........................ |obsidian-query-introduction|
+  2. Requirements ........................ |obsidian-query-requirements|
+  3. Setup ............................... |obsidian-query-setup|
+  4. Configuration ....................... |obsidian-query-configuration|
+  5. Keymaps ............................. |obsidian-query-keymaps|
+  6. Search fences ....................... |obsidian-query-search|
+  7. Dataview fences ..................... |obsidian-query-dataview|
+  8. Calendar ............................ |obsidian-query-calendar|
+  9. Inline queries ...................... |obsidian-query-inline|
+ 10. Completion .......................... |obsidian-query-completion|
+ 11. Highlight groups .................... |obsidian-query-highlights|
+
+==============================================================================
+1. INTRODUCTION                              *obsidian-query-introduction*
+
+Renders Obsidian's `query` (core Search) and `dataview` (Dataview DQL) code
+fences as inline virtual-line results, exactly where Obsidian would render
+them. Both query languages are re-implemented in pure Lua and evaluated
+against the vault's markdown files — Obsidian never runs. Results appear in
+normal mode and collapse back to the raw fence while editing; files on disk
+only ever contain the query.
+
+==============================================================================
+2. REQUIREMENTS                              *obsidian-query-requirements*
+
+- Neovim >= 0.11
+- obsidian.nvim (community fork) with the cache enabled: >lua
+    require("obsidian").setup({ cache = { enabled = true } })
+<
+- render-markdown.nvim (rendering)
+- snacks.nvim (pickers)
+- ripgrep
+- a Nerd Font (key glyphs in result hints)
+
+Verify with `:checkhealth obsidian-query`.
+
+Multiple vaults: results follow the buffer. Opening a note from another
+vault switches obsidian.nvim's active workspace to it and re-renders, so
+queries never show a different vault's results.
+
+==============================================================================
+3. SETUP                                            *obsidian-query-setup*
+
+Wire the render-markdown handlers — this is what puts results on screen: >lua
+
+  require("render-markdown").setup({
+    custom_handlers = {
+      markdown = {
+        extends = true,
+        parse = function(ctx)
+          return require("obsidian-query").parse(ctx)
+        end,
+      },
+      -- optional: inline `= expr` queries in prose
+      markdown_inline = {
+        extends = true,
+        parse = function(ctx)
+          return require("obsidian-query.inline").parse(ctx)
+        end,
+      },
+    },
+  })
+<
+==============================================================================
+4. CONFIGURATION                            *obsidian-query-configuration*
+
+Defaults: >lua
+
+  require("obsidian-query").setup({
+    picker = {
+      -- "file": snacks' stock file formatter (paths + icons)
+      -- "rich": query-shaped rows (dates, table cells, source note + task)
+      style = "file",
+    },
+    -- Cap inline-rendered rows; excess becomes a "+N more" line.
+    -- nil = unlimited.
+    max_inline_rows = nil,
+  })
+<
+==============================================================================
+5. KEYMAPS                                        *obsidian-query-keymaps*
+
+Buffer-local to vault notes, set automatically on ObsidianNoteEnter:
+
+  <CR>          On a fence: open results in a picker, titled by query kind
+                and source (`TABLE · "Coding" (24)`). Elsewhere:
+                obsidian.nvim's smart action, unchanged.
+  <LeftMouse>   Calendar day with notes: picker of that day's notes
+                (`Notes · 2026-07-29`). Header `‹`/`›`: previous/next
+                month. Month label: back to today. Elsewhere: normal click.
+  <Left>        Calendar fence: previous month. Elsewhere: unchanged.
+  <Right>       Calendar fence: next month. Elsewhere: unchanged.
+  <Home>        Calendar fence: back to the current month.
+
+Inside a TASK picker:
+
+  <C-t>         Toggle the checkbox of the selected task in its file.
+
+==============================================================================
+6. SEARCH FENCES                                   *obsidian-query-search*
+
+The full core-Search language inside ```query fences: terms, "phrases",
+/regex/, implicit AND, OR, - negation, (...) grouping, and the operators
+
+  file: path: content: tag: line:() section:() block:()
+  task: task-todo: task-done: match-case:() ignore-case:()
+  [property] [property:value]
+
+Matching is smart-case. Every vault file is matchable by path:/file:/bare
+filename — attachments included; content operators only ever hit notes.
+Matched lines render under each note.
+
+==============================================================================
+7. DATAVIEW FENCES                               *obsidian-query-dataview*
+
+DQL inside ```dataview fences:
+
+- Headers: TABLE [WITHOUT ID], LIST [WITHOUT ID], TASK, CALENDAR
+- Sources: #tag (nested), "folder", [[note]] (inlinks),
+  outgoing([[note]]), csv("file.csv"), combined with AND/OR/-
+- Commands: WHERE, SORT (multi-key), GROUP BY, FLATTEN, LIMIT — executed
+  in written order, duplicates allowed
+- Expressions: typed arithmetic (date - date -> duration, date +
+  dur(1 month) shifts calendar months with day clamping), Dataview null
+  semantics, lambdas `(x) => ...`, list and [[link]] literals, contextual
+  date(today|sow|som|...) / dur(30 days) literals
+- Implicit fields: file.name/folder/path/link/size/ctime/cday/mtime/mday/
+  day/tags/etags/aliases/tasks/inlinks/outlinks/frontmatter/starred,
+  frontmatter keys (original, lowercase, kebab-case), inline Key:: value
+  fields
+- ~60 functions from the Dataview function library
+
+Not supported: ```dataviewjs fences and `$=` inline JS (need a JS runtime).
+
+==============================================================================
+8. CALENDAR                                      *obsidian-query-calendar*
+
+`CALENDAR <date-expr>` renders one month at a time, opening on the current
+month. Days with notes are heat-mapped by note count across the shown
+month; only the stretch of the palette that clears a contrast floor
+against `Normal`'s background is used, rebuilt on |ColorScheme|. A
+grid-wide legend maps colours back to counts. Today is drawn reversed.
+Navigation: see |obsidian-query-keymaps|.
+
+==============================================================================
+9. INLINE QUERIES                                  *obsidian-query-inline*
+
+With the markdown_inline handler wired, `= expr` code spans in prose
+render their value as inline virtual text: >
+
+  This note has `= length(this.file.tasks)` tasks.
+<
+The raw span reappears on the cursor row; errors and null render nothing.
+
+==============================================================================
+10. COMPLETION                                 *obsidian-query-completion*
+
+Optional blink.cmp source with context-aware operators, DQL keywords and
+functions with inline documentation, plus the vault's tags, folders, note
+names and frontmatter properties: >lua
+
+  sources = {
+    per_filetype = { markdown = { inherit_defaults = true, "obsidian_query" } },
+    providers = {
+      obsidian_query = { name = "ObsidianQuery", module = "obsidian-query.blink" },
+    },
+  }
+<
+==============================================================================
+11. HIGHLIGHT GROUPS                           *obsidian-query-highlights*
+
+  ObsidianQueryHeat1..24    Calendar heat scale, least to most notes.
+                            Defined with `default`, so a colorscheme or
+                            user definition wins.
+  ObsidianQueryToday        Stacked over today's heat colour; reverse +
+                            bold by default, owns no colour.
+
+Fence bodies are highlighted by the query engines' own lexers via standard
+groups (Keyword, Function, String, Number, ...).
+
+vim:tw=78:ts=8:noet:ft=help:norl:

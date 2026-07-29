@@ -4,14 +4,68 @@ local render = require("obsidian-query.render")
 
 local M = {}
 
+-- key -> { result?: table, fetching?: boolean, stale?: boolean, bufs: table<integer, true> }
+-- (declared before setup: its autocmds close over it)
+local cache = {}
+
 ---@param opts obsidian-query.Opts?
 function M.setup(opts)
   require("obsidian-query.config").set(opts)
+  local group = vim.api.nvim_create_augroup("obsidian_query_keymaps", { clear = true })
+  -- obsidian.nvim detects which workspace a buffer belongs to but never
+  -- switches to it, and its cache only serves the ACTIVE workspace — so a
+  -- note from another vault would render stale or empty results forever.
+  -- Follow the buffer: entering a note from vault B makes B active.
+  vim.api.nvim_create_autocmd("User", {
+    group = group,
+    pattern = "ObsidianNoteEnter",
+    callback = function(ev)
+      local ok, ws = pcall(function()
+        return require("obsidian.api").find_workspace(vim.api.nvim_buf_get_name(ev.buf))
+      end)
+      local active = _G.Obsidian and Obsidian.workspace
+      if ok and ws and active and tostring(ws.path) ~= tostring(active.path) then
+        pcall(require("obsidian.workspace").set, ws)
+      end
+    end,
+  })
+  -- workspace switched (by us or the user): drop every cross-vault cache and
+  -- re-render visible markdown buffers so results swap vaults seamlessly.
+  -- (Both spellings: upstream currently fires the typo'd one.)
+  local cache_vault ---@type string? vault obsidian's cache was last built for
+  vim.api.nvim_create_autocmd("User", {
+    group = group,
+    pattern = { "ObsidianWorkpspaceSet", "ObsidianWorkspaceSet" },
+    callback = function()
+      -- obsidian.nvim wires its cache ONCE at startup: after a switch it
+      -- still serves the previous vault (ready, wrong rows -> every query
+      -- comes back empty). Rebuild it for the new vault; the initial scan
+      -- skips unchanged files, so revisiting a vault is cheap.
+      local ok, ob_cache = pcall(require, "obsidian.cache")
+      local dir = _G.Obsidian and Obsidian.dir and vim.fs.normalize(tostring(Obsidian.dir))
+      if ok and ob_cache.is_enabled() and dir and dir ~= cache_vault then
+        cache_vault = dir
+        pcall(ob_cache.setup, Obsidian.opts and Obsidian.opts.cache or {})
+      end
+      for _, entry in pairs(cache) do
+        entry.stale = true
+      end
+      require("obsidian-query.inline").invalidate()
+      vim.schedule(function() -- after the switch settles
+        for _, win in ipairs(vim.api.nvim_list_wins()) do
+          local buf = vim.api.nvim_win_get_buf(win)
+          if vim.bo[buf].filetype == "markdown" then
+            require("render-markdown.api").render({ buf = buf, event = "ObsidianQuery" })
+          end
+        end
+      end)
+    end,
+  })
   -- obsidian.nvim re-maps <CR> on every BufEnter and then fires
   -- ObsidianNoteEnter — hooking that event is the only ordering that lets
   -- these wrappers win over its own mapping.
   vim.api.nvim_create_autocmd("User", {
-    group = vim.api.nvim_create_augroup("obsidian_query_keymaps", { clear = true }),
+    group = group,
     pattern = "ObsidianNoteEnter",
     callback = function(ev)
       vim.keymap.set("n", "<CR>", function()
@@ -57,8 +111,6 @@ local engines = {
   dataview = require("obsidian-query.dataview"),
 }
 
--- key -> { result?: table, fetching?: boolean, stale?: boolean, bufs: table<integer, true> }
-local cache = {}
 local stale_au ---@type integer?
 
 ---Workspace root for a buffer, from the buffer's own path — NOT the globally

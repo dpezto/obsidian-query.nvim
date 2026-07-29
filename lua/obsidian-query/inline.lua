@@ -5,6 +5,7 @@
 local M = {}
 
 local idx ---@type table? cached obsidian-query.index result
+local idx_root ---@type string? vault the cached index belongs to
 local idx_stale, idx_pending = false, false
 local idx_gen, shown_gen = 0, 0
 local stale_au ---@type integer?
@@ -36,7 +37,17 @@ local function rerender(buf)
   end)
 end
 
+---Drop the cached index (workspace switched): old-vault values must not
+---render against the new vault.
+function M.invalidate()
+  idx, idx_root, idx_stale = nil, nil, false
+  page_cache = {}
+end
+
 local function ensure_index(root, buf)
+  if idx and idx_root ~= root then
+    M.invalidate() -- different vault: never serve the old index
+  end
   if idx and not idx_stale then
     return idx
   end
@@ -45,7 +56,7 @@ local function ensure_index(root, buf)
     require("obsidian-query.index").get({ root = root }, function(result)
       idx_pending = false
       if result then
-        idx, idx_stale = result, false
+        idx, idx_root, idx_stale = result, root, false
         idx_gen = idx_gen + 1
         page_cache = {}
         rerender(buf)

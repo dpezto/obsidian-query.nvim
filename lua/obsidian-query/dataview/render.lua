@@ -357,6 +357,17 @@ local function legend_line(lo, hi)
 	return line
 end
 
+---The month a calendar view offset lands on (0/nil = the current month).
+---os.time normalises month over/underflow, so any offset is a valid month.
+---@param data table calendar result (uses data.today)
+---@param view integer?
+---@return {year: integer, month: integer, label: string}
+function M.view_month(data, view)
+	local today = data.today or os.date("*t")
+	local t = os.date("*t", os.time({ year = today.year, month = today.month + (view or 0), day = 1 }))
+	return { year = t.year, month = t.month, label = ("%s %d"):format(MONTHS[t.month], t.year) }
+end
+
 ---Dataview shows one month at a time, opening on the current month;
 ---`view` is that month's offset, moved by <Left>/<Right> (see M.shift).
 ---@param data table calendar result
@@ -368,8 +379,7 @@ function M.calendar_lines(data, view)
 	local clickmap = {}
 	data._clickmap = clickmap
 	local today = data.today or os.date("*t")
-	-- os.time normalises month over/underflow, so any offset is a valid month
-	local base = os.date("*t", os.time({ year = today.year, month = today.month + (view or 0), day = 1 }))
+	local base = M.view_month(data, view)
 	local m = { year = base.year, month = base.month, days = {} }
 	for _, bucket in ipairs(data.months) do
 		if bucket.year == base.year and bucket.month == base.month then
@@ -380,7 +390,7 @@ function M.calendar_lines(data, view)
 	-- header spans the grid (7 day cells, 3 cols each) with the arrows pinned
 	-- to its edges and the label centred, so the click targets never move as
 	-- the month changes; "▏ " = 2 display cols before it
-	local label = ("%s %d"):format(MONTHS[m.month], m.year)
+	local label = base.label
 	local inner = math.max(GRID_W - 2 - width(label), 0)
 	local lpad = math.floor(inner / 2)
 	lines[#lines + 1] = {

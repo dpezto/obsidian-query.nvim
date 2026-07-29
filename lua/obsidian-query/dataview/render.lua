@@ -12,8 +12,10 @@ local function max_rows()
 end
 local BAR = { "▏ ", "RenderMarkdownBullet" }
 
+local key = require("obsidian-query.render").key
+
 local function more_line(n, what)
-  return { BAR, { ("+%d more %s — <CR> for all"):format(n, what), "NonText" } }
+  return { BAR, { ("+%d more %s — %sfor all"):format(n, what, key("<CR>")), "NonText" } }
 end
 
 local function width(s)
@@ -245,7 +247,10 @@ function M.calendar_lines(data, view)
   lines[#lines + 1] = {
     BAR,
     { ("%d this month · %d dated notes"):format(n_month, #data.dated), "Comment" },
-    { "  <Left>/<Right> month · <Home> today", "NonText" },
+    {
+      ("  %s/%s month · %stoday"):format(key("<Left>"), key("<Right>"), key("<Home>")),
+      "NonText",
+    },
   }
   return lines
 end

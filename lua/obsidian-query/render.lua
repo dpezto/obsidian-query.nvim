@@ -26,6 +26,26 @@ function M.anchored_mark(block, buf, lines)
   }
 end
 
+-- Nerd-font key glyphs.
+local KEY_ICONS = {
+  ["<Left>"] = " ",
+  ["<Right>"] = " ",
+  ["<Up>"] = " ",
+  ["<Down>"] = " ",
+  ["<CR>"] = "󰌑 ",
+  ["<Home>"] = "󰋜 ",
+  ["<Esc>"] = "󱊷 ",
+  ["<Tab>"] = "󰌒 ",
+}
+
+---Key hint, always trailing-padded: the glyph for known keys, the literal
+---`<Key>` for the rest.
+---@param lhs string e.g. "<Left>"
+---@return string
+function M.key(lhs)
+  return KEY_ICONS[lhs] or (lhs .. " ")
+end
+
 ---@return table single pending-spinner virt line
 function M.pending()
   return { { { "▏ …", "Comment" } } }

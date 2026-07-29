@@ -110,7 +110,13 @@ function M.lines(result)
   if #result.files > max_notes() then
     lines[#lines + 1] = {
       { "▏ ", "RenderMarkdownBullet" },
-      { ("+%d more notes — <CR> for all"):format(#result.files - max_notes()), "NonText" },
+      {
+        ("+%d more notes — %sfor all"):format(
+          #result.files - max_notes(),
+          require("obsidian-query.render").key("<CR>")
+        ),
+        "NonText",
+      },
     }
   end
   local tail = ("%d notes"):format(#result.files)

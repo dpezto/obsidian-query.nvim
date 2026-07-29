@@ -57,6 +57,7 @@ ever contain the query.
 - [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim)
 - [snacks.nvim](https://github.com/folke/snacks.nvim) (pickers)
 - [ripgrep](https://github.com/BurntSushi/ripgrep) (already required by obsidian.nvim)
+- a Nerd Font, for the key glyphs in result hints (` `, ` `, `󰌑 `)
 
 ## Installation
 

@@ -325,6 +325,17 @@ check(cres2.view == 2, "shift accumulates")
 check(not require("obsidian-query.dataview").shift(run("LIST"), 1), "shift ignores other kinds")
 check(flatten(dv_render.lines(cres2))[1]:find("September 2026"), "lines() honours the view")
 
+-- key hints: nerd-font glyph for known keys, literal <Key> otherwise, both
+-- trailing-padded so a two-cell glyph can't collide with the next character
+local base_render = require("obsidian-query.render")
+-- the glyphs are private-use codepoints, so assert their shape, not literals
+local left = base_render.key("<Left>")
+check(left ~= "<Left> " and vim.fn.strchars(left) == 2, "glyph + pad for known keys")
+check(base_render.key("<F5>") == "<F5> ", "unknown keys stay literal")
+for _, lhs in ipairs({ "<Left>", "<Right>", "<CR>", "<Home>", "<F5>" }) do
+  check(base_render.key(lhs):sub(-1) == " ", "key hint padded: " .. lhs)
+end
+
 local cal_data = run("CALENDAR").data
 dv_render.calendar_lines(cal_data)
 local cmap = cal_data._clickmap

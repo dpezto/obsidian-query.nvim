@@ -18,9 +18,10 @@ function M.key(spec, ctx)
 end
 
 function M.run(spec, ctx, cb)
-  require("obsidian-query.index").get(ctx, function(idx, err)
+  require("obsidian-query.index").get(ctx, function(idx, err, transient)
     if not idx then
-      cb({ ok = false, phase = "index", msg = err or "index unavailable" })
+      -- transient (vault not active): cb(nil) keeps the previous render
+      cb(not transient and { ok = false, phase = "index", msg = err or "index unavailable" } or nil)
       return
     end
     local this_path = ctx.buf and vim.api.nvim_buf_is_valid(ctx.buf) and vim.api.nvim_buf_get_name(ctx.buf) or nil

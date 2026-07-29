@@ -42,12 +42,26 @@ local cache = {}
 M._cache = cache -- introspection only (health/debug)
 local stale_au ---@type integer?
 
--- Workspace context for a fence; nil outside an Obsidian workspace
-local function get_ctx(buf)
-  if not (_G.Obsidian and Obsidian.workspace) then
+---Workspace root for a buffer, from the buffer's own path — NOT the globally
+---active workspace, which changes as other vaults' notes are visited and
+---would contaminate this buffer's queries.
+---@return string? root
+function M.buf_root(buf)
+  if not _G.Obsidian then
     return nil
   end
-  return { root = tostring(Obsidian.workspace.path), buf = buf }
+  local path = vim.api.nvim_buf_get_name(buf)
+  local ok, ws = pcall(function()
+    return require("obsidian.api").find_workspace(path)
+  end)
+  ws = (ok and ws) or Obsidian.workspace
+  return ws and vim.fs.normalize(tostring(ws.path)) or nil
+end
+
+-- Workspace context for a fence; nil outside an Obsidian workspace
+local function get_ctx(buf)
+  local root = M.buf_root(buf)
+  return root and { root = root, buf = buf } or nil
 end
 
 local function mark_stale_on_change()
@@ -70,6 +84,12 @@ local function refetch(engine, key, spec, ctx)
   entry.fetching = true
   engine.run(spec, ctx, function(result)
     if not cache[key] then
+      return
+    end
+    if result == nil then
+      -- transient failure (e.g. this vault's cache not active right now):
+      -- keep showing the previous result, stay stale, retry on a later parse
+      entry.fetching = false
       return
     end
     entry.result, entry.fetching, entry.stale = result, false, false

@@ -67,11 +67,18 @@ local function make_resolver(rows)
 end
 
 ---@param ctx {root: string}
----@param cb fun(index: table?, err: string?)
+---@param cb fun(index: table?, err: string?, transient: boolean?)
 function M.get(ctx, cb)
   local ok, cache = pcall(require, "obsidian.cache")
   if not ok or not cache.is_enabled() then
     cb(nil, "obsidian.nvim cache disabled")
+    return
+  end
+  -- the cache holds only the ACTIVE vault; a buffer from another workspace
+  -- must not be re-evaluated against it (results would empty out)
+  local active = _G.Obsidian and Obsidian.workspace and vim.fs.normalize(tostring(Obsidian.workspace.path))
+  if active and vim.fs.normalize(ctx.root) ~= active then
+    cb(nil, "workspace not active", true)
     return
   end
   cache.when_ready(function()

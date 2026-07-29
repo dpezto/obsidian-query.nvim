@@ -92,10 +92,10 @@ end
 ---@return render.md.Mark[]
 function M.parse(ctx)
   mark_stale_on_change()
-  if not (_G.Obsidian and Obsidian.workspace) then
+  local root = require("obsidian-query").buf_root(ctx.buf)
+  if not root then
     return {}
   end
-  local root = tostring(Obsidian.workspace.path)
   local path = vim.api.nvim_buf_get_name(ctx.buf)
   if not vim.startswith(path, root .. "/") then
     return {}

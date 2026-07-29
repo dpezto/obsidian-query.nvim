@@ -115,7 +115,7 @@ local function vault_data()
   if not (ok and cache.is_enabled() and cache.is_ready()) then
     return out
   end
-  local root = _G.Obsidian and Obsidian.workspace and tostring(Obsidian.workspace.path)
+  local root = require("obsidian-query").buf_root(vim.api.nvim_get_current_buf())
   if not root then
     return out
   end

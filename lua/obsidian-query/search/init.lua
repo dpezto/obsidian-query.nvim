@@ -5,14 +5,13 @@
 --   pick(spec, ctx, result)
 local parser = require("obsidian-query.search.parser")
 local eval = require("obsidian-query.search.eval")
+local base = require("obsidian-query.render")
 
 local M = {}
 
 local BATCH = 25 -- files evaluated per event-loop tick
 local MAX_MATCH_LINES = 3 -- matched lines shown per note inline
-local function max_notes() -- optional inline cap (opts.max_inline_rows)
-  return require("obsidian-query.config").opts.max_inline_rows or math.huge
-end
+local max_notes = require("obsidian-query.config").max_rows
 
 function M.parse(body)
   body = vim.trim(body)
@@ -76,8 +75,7 @@ function M.run(spec, ctx, cb)
 end
 
 local function trim_text(s)
-  s = vim.trim(s)
-  return #s > 60 and (s:sub(1, 59) .. "…") or s
+  return base.clip(vim.trim(s), 60)
 end
 
 function M.lines(result)
@@ -152,18 +150,8 @@ function M.pick(spec, _, result)
       end
     end
   end
-  local style = require("obsidian-query.config").opts.picker.style
-  local q = spec.body:gsub("%s+", " ")
-  if #q > 30 then
-    q = q:sub(1, 29) .. "…"
-  end
-  Snacks.picker({
-    title = ("Search · %s (%d)"):format(q, #items),
-    items = items,
-    format = style == "rich" and function(item)
-      return item.display
-    end or "file",
-  })
+  local q = base.clip((spec.body:gsub("%s+", " ")), 30)
+  base.picker(("Search · %s (%d)"):format(q, #items), items)
 end
 
 return M

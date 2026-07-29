@@ -155,7 +155,8 @@ end
 ---------------------------------------------------------------- parsing
 
 local DATE_PAT = "^(%d%d%d%d)%-(%d%d)%-(%d%d)"
-local TIME_PAT = "^T(%d%d):(%d%d):?(%d?%d?)"
+-- ISO "T" or the space Obsidian writes in frontmatter (`created: … 10:44`)
+local TIME_PAT = "^[T ](%d%d):(%d%d):?(%d?%d?)"
 
 ---ISO 8601 (naive local): yyyy-MM-dd[THH:mm[:ss]]
 function M.parse_date(s)

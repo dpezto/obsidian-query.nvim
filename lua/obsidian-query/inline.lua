@@ -24,22 +24,16 @@ local function mark_stale_on_change()
   })
 end
 
--- same decorator-drop dance as init.refetch: retry with exponential backoff
--- until a parse pass has consumed the freshly loaded index
+-- nudge render-markdown until a parse pass has consumed the fresh index
 local function rerender(buf)
-  local id, tries, delay = idx_gen, 0, 150
-  local function attempt()
-    if shown_gen >= id or idx_gen ~= id or tries >= 5 then
-      return
-    end
-    tries = tries + 1
+  local id = idx_gen
+  require("obsidian-query.render").retry(function()
+    return shown_gen >= id or idx_gen ~= id
+  end, function()
     if vim.api.nvim_buf_is_valid(buf) then
       require("render-markdown.api").render({ buf = buf, event = "ObsidianInline" })
     end
-    delay = delay * 2
-    vim.defer_fn(attempt, delay)
-  end
-  vim.defer_fn(attempt, delay)
+  end)
 end
 
 local function ensure_index(root, buf)

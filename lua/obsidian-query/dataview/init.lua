@@ -2,6 +2,7 @@
 local query = require("obsidian-query.dataview.query")
 local dv_render = require("obsidian-query.dataview.render")
 local value = require("obsidian-query.dataview.value")
+local base = require("obsidian-query.render")
 
 local M = {}
 
@@ -45,7 +46,7 @@ end
 -- Short readable FROM source for the picker title.
 -- ponytail: leaf sources only; combinators (and/or/not) are too long to fit
 local function source_label(src)
-  local s
+  local s ---@type string?
   if src.k == "s_tag" then
     s = "#" .. src.tag
   elseif src.k == "s_folder" then
@@ -57,27 +58,10 @@ local function source_label(src)
   elseif src.k == "s_outgoing" then
     s = "outgoing([[" .. src.raw .. "]])"
   end
-  if s and #s > 30 then
-    s = s:sub(1, 29) .. "…"
-  end
-  return s
+  return s and base.clip(s, 30)
 end
 
--- items carry `display` (snacks Highlight[]) so the picker shows query
--- results, not raw file paths; `text` stays the fuzzy-match string
-local function open_items(title, items)
-  if #items == 0 then
-    return
-  end
-  local style = require("obsidian-query.config").opts.picker.style
-  Snacks.picker({
-    title = title,
-    items = items,
-    format = style == "rich" and function(item)
-      return item.display
-    end or "file",
-  })
-end
+local open_items = base.picker
 
 function M.pick(spec, ctx, result)
   if not result.ok then

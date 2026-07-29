@@ -130,6 +130,11 @@ check(value.typeof(d1) == "date" and d1.prec == "date" and d1.year == 2026, "par
 local dt = value.parse_date("2026-07-01T14:30")
 check(dt.prec == "datetime" and dt.hour == 14, "datetime parse")
 check(value.typeof(value.parse_date("nope")) == "null", "bad date -> null")
+-- Obsidian writes frontmatter timestamps space-separated, not ISO "T"
+local sp = value.parse_date("2024-02-18 10:44")
+check(sp.prec == "datetime" and sp.hour == 10 and sp.minute == 44, "space-separated datetime")
+check(value.to_display(sp) == "2024-02-18 10:44", "space form keeps its time")
+check(value.parse_date("2026-07-01 is a Wednesday").prec == "date", "trailing prose stays a date")
 local dur = value.parse_dur("1 day, 2 hours")
 check(dur.ms == (26 * 3600) * 1000, "parse_dur")
 check(value.parse_dur("3h").ms == 3 * 3600 * 1000, "parse_dur short")
@@ -335,6 +340,115 @@ check(base_render.key("<F5>") == "<F5> ", "unknown keys stay literal")
 for _, lhs in ipairs({ "<Left>", "<Right>", "<CR>", "<Home>", "<F5>" }) do
   check(base_render.key(lhs):sub(-1) == " ", "key hint padded: " .. lhs)
 end
+
+-- day cells are heat-mapped by note count over the shown month
+local function heat_of(days)
+  local d = { kind = "calendar", months = { { year = 2026, month = 7, days = days } }, dated = {},
+    today = { year = 2026, month = 7, day = 1 } }
+  local hl = {}
+  for _, line in ipairs(dv_render.calendar_lines(d, 0)) do
+    for _, seg in ipairs(line) do
+      local day = seg[1]:match("^%s*(%d+)•$")
+      if day then
+        hl[tonumber(day)] = seg[2]
+      end
+    end
+  end
+  return hl
+end
+local flat_heat = heat_of({ [2] = { "a" }, [3] = { "b" }, [6] = { "c" } })
+check(flat_heat[2] == "ObsidianQueryHeat1" and flat_heat[6] == "ObsidianQueryHeat1", "equal counts collapse to step 1")
+local ramp = heat_of({ [2] = { "a" }, [3] = { "a", "b", "c" }, [6] = { "a", "b", "c", "d", "e" } })
+local function step_of(hl)
+  return tonumber(hl:match("Heat(%d+)$"))
+end
+local last = step_of(ramp[2])
+check(last == 1, "fewest notes -> first palette step")
+check(step_of(ramp[3]) > last and step_of(ramp[6]) > step_of(ramp[3]), "more notes -> further along the ramp")
+check(vim.api.nvim_get_hl(0, { name = ramp[6] }).fg ~= nil, "heat groups defined")
+-- the ramp is interpolated, not snapped to its anchors
+local anchors = { ["88226a"] = true, ["a83655"] = true, ["e35933"] = true,
+  ["f9950a"] = true, ["f8c932"] = true, ["fcffa4"] = true }
+local between = 0
+for i = 1, step_of(ramp[6]) do
+  local fg = vim.api.nvim_get_hl(0, { name = "ObsidianQueryHeat" .. i }).fg
+  if fg and not anchors[("%06x"):format(fg)] then
+    between = between + 1
+  end
+end
+check(between > 0, "steps interpolate between the ramp anchors")
+-- legend: `lo ███ hi` under the grid, grid-wide, only when counts vary
+local function legend_of(days)
+  local d = { kind = "calendar", months = { { year = 2026, month = 7, days = days } }, dated = {},
+    today = { year = 2026, month = 7, day = 1 } }
+  for _, line in ipairs(dv_render.calendar_lines(d, 0)) do
+    if line[2] and line[2][1]:match("^%d+ $") and line[3] and line[3][1] == "█" then
+      return line
+    end
+  end
+  return nil
+end
+local leg = legend_of({ [2] = { "a" }, [3] = { "a", "b", "c" }, [6] = { "a", "b", "c", "d", "e" } })
+check(leg ~= nil, "legend rendered when counts vary")
+check(leg[2][1] == "1 " and leg[#leg][1] == " 5", "legend labelled with min and max counts")
+local legw, first_step, last_step = 0, nil, nil
+for i = 2, #leg do
+  legw = legw + vim.fn.strdisplaywidth(leg[i][1])
+  local s = type(leg[i][2]) == "string" and leg[i][2]:match("^ObsidianQueryHeat(%d+)$")
+  if s then
+    first_step = first_step or tonumber(s)
+    last_step = tonumber(s)
+  end
+end
+check(legw == 21, "legend spans the grid width")
+check(first_step == 1 and last_step == 24, "legend sweeps the full ramp")
+check(legend_of({ [2] = { "a" }, [9] = { "b" } }) == nil, "no legend when every day has the same count")
+check(legend_of({}) == nil, "no legend for an empty month")
+
+-- today keeps its heat colour, marked by a stacked attribute group
+local with_today = heat_of({ [1] = { "a" }, [4] = { "a", "b" } })
+check(type(with_today[1]) == "table", "today's cell stacks two groups")
+check(with_today[1][1]:find("^ObsidianQueryHeat%d+$") and with_today[1][2] == "ObsidianQueryToday", "today = heat + today attrs")
+check(type(with_today[4]) == "string" and step_of(with_today[4]) > 1, "other days keep a plain heat group")
+local today_hl = vim.api.nvim_get_hl(0, { name = "ObsidianQueryToday" })
+check(today_hl.reverse and today_hl.fg == nil, "today group reverses the heat colour, owns none")
+
+-- heat colours are clamped to stay legible on the colorscheme's background
+local function ratio(a, b) -- WCAG, independent of the implementation under test
+  local function lum(hex)
+    local n, l = tonumber(hex:sub(2), 16), {}
+    for i, c in ipairs({ math.floor(n / 65536) % 256, math.floor(n / 256) % 256, n % 256 }) do
+      c = c / 255
+      l[i] = c <= 0.03928 and c / 12.92 or ((c + 0.055) / 1.055) ^ 2.4
+    end
+    return 0.2126 * l[1] + 0.7152 * l[2] + 0.0722 * l[3]
+  end
+  local x, y = lum(a), lum(b)
+  return (math.max(x, y) + 0.05) / (math.min(x, y) + 0.05)
+end
+local LATTE, MOCHA = "#eff1f5", "#1e1e2e"
+local FLOOR = dv_render.HEAT_MIN_CONTRAST
+local full = { dv_render.sample_heat(0), dv_render.sample_heat(1) }
+check(ratio(full[1], MOCHA) < FLOOR, "the raw ramp's dark end fails on a dark background")
+check(ratio(full[2], LATTE) < FLOOR, "the raw ramp's light end fails on a light background")
+for _, bg in ipairs({ LATTE, MOCHA, "#808080" }) do
+  local ramp = dv_render.usable_ramp(bg)
+  check(#ramp > 0, "usable ramp never empties on " .. bg)
+  for _, hex in ipairs(ramp) do
+    check(ratio(hex, bg) >= FLOOR or #ramp == 1, ("kept anchor %s clears the floor on %s"):format(hex, bg))
+  end
+  local seen = {}
+  for i = 1, 24 do
+    local fg = dv_render.sample_heat((i - 1) / 23, ramp)
+    check(ratio(fg, bg) >= FLOOR or #ramp == 1, ("step %d stays legible on %s"):format(i, bg))
+    seen[fg] = true
+  end
+  check(vim.tbl_count(seen) > 1 or #ramp == 1, "surviving anchors still interpolate on " .. bg)
+end
+local dark_ramp, light_ramp = dv_render.usable_ramp(MOCHA), dv_render.usable_ramp(LATTE)
+check(dark_ramp[1] ~= full[1], "dark background drops the ramp's darkest anchors")
+check(light_ramp[#light_ramp] ~= full[2], "light background drops the ramp's lightest anchors")
+check(#dark_ramp < 9 and #light_ramp < 9, "both backgrounds drop something")
 
 local cal_data = run("CALENDAR").data
 dv_render.calendar_lines(cal_data)

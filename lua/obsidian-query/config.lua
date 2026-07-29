@@ -15,6 +15,12 @@ M.opts = {
   max_inline_rows = nil,
 }
 
+---Inline row cap; math.huge when unset.
+---@return number
+function M.max_rows()
+  return M.opts.max_inline_rows or math.huge
+end
+
 function M.set(user)
   M.opts = vim.tbl_deep_extend("force", M.opts, user or {})
 end

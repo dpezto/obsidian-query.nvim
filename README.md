@@ -168,7 +168,19 @@ GROUP BY section
 
 Daily notes as a calendar — one month at a time, opening on the current
 month, `<Left>`/`<Right>` (or the `‹` `›` arrows) to change month, `<Home>`
-(or the month label) for today, click a day to open its notes:
+(or the month label) for today, click a day to open its notes. Days are
+heat-mapped by note count across the shown month, on a continuous spectrum
+interpolated from the palette anchors (a month whose days all hold the same
+count is drawn in the first colour). The scale only uses the stretch of the
+palette that clears a contrast floor against your colorscheme's `Normal`
+background — cut exactly where the ramp crosses the floor, so a dark
+background loses the near-black end, a light one the near-white end — and is
+rebuilt on `:colorscheme`, so the busiest days stay readable either way.
+A grid-wide legend under the month (`1 ██████ 6`) maps the colours back to
+counts; it disappears when every day holds the same count. Today keeps its count colour, drawn reversed (colour as
+background) so it reads at a glance. Override any step by highlighting
+`ObsidianQueryHeat1`…`ObsidianQueryHeat24`, or the marker with
+`ObsidianQueryToday`:
 
 ````
 ```dataview

@@ -59,7 +59,6 @@ local engines = {
 
 -- key -> { result?: table, fetching?: boolean, stale?: boolean, bufs: table<integer, true> }
 local cache = {}
-M._cache = cache -- introspection only (health/debug)
 local stale_au ---@type integer?
 
 ---Workspace root for a buffer, from the buffer's own path — NOT the globally
@@ -117,17 +116,12 @@ local function refetch(engine, key, spec, ctx)
     result.view = entry.result and entry.result.view or nil
     entry.result, entry.fetching, entry.stale = result, false, false
     entry.result_id = (entry.result_id or 0) + 1
-    -- render-markdown's decorator silently drops updates that arrive while a
-    -- render is in flight AND restarts its debounce timer on every dropped
-    -- call — so retries must back off exponentially to outgrow any window.
-    -- Stop once a parse pass has consumed this result (M.parse stamps
-    -- shown_id): self-healing instead of a magic delay.
-    local id, tries, delay = entry.result_id, 0, 150
-    local function attempt()
-      if entry.shown_id == id or entry.result_id ~= id or tries >= 5 then
-        return
-      end
-      tries = tries + 1
+    -- keep nudging render-markdown until a parse pass consumes this result
+    -- (M.parse stamps shown_id)
+    local id = entry.result_id
+    render.retry(function()
+      return entry.shown_id == id or entry.result_id ~= id
+    end, function()
       for buf in pairs(entry.bufs) do
         if vim.api.nvim_buf_is_valid(buf) then
           require("render-markdown.api").render({ buf = buf, event = "ObsidianQuery" })
@@ -135,10 +129,7 @@ local function refetch(engine, key, spec, ctx)
           entry.bufs[buf] = nil
         end
       end
-      delay = delay * 2 -- 300, 600, 1200, 2400ms between attempts
-      vim.defer_fn(attempt, delay)
-    end
-    vim.defer_fn(attempt, delay)
+    end)
   end)
 end
 

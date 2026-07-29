@@ -443,6 +443,10 @@ function M.to_display(v)
   elseif t == "date" then
     return os.date(v.prec == "date" and "%Y-%m-%d" or "%Y-%m-%d %H:%M", math.floor(v.ts)) --[[@as string]]
   elseif t == "duration" then
+    -- negative durations (date - later_date): display the magnitude, signed
+    if dur_approx_ms(v) < 0 then
+      return "-" .. M.to_display(M.dur(-v.ms, -(rawget(v, "months") or 0)))
+    end
     local parts = {}
     local months = rawget(v, "months") or 0
     local years = math.floor(math.abs(months) / 12) * (months < 0 and -1 or 1)

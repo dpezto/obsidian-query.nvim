@@ -136,7 +136,12 @@ eval_node = function(ast, env)
       args[i] = eval_node(a, env)
     end
     local ok, res = pcall(fn, args)
-    return ok and norm(res) or NULL
+    -- NOT `ok and norm(res) or NULL`: a legitimate `false` result must
+    -- survive as false, not collapse to NULL
+    if not ok then
+      return NULL
+    end
+    return norm(res)
   elseif k == "datelit" then
     if ast.fn == "date" then
       return date_literal(ast.lit, env)
@@ -167,7 +172,7 @@ eval_node = function(ast, env)
     if t == "number" then
       return -v
     elseif t == "duration" then
-      return value.dur(-v.ms)
+      return value.dur(-v.ms, -(rawget(v, "months") or 0))
     end
     return NULL
   end
@@ -177,7 +182,10 @@ end
 ---@return any dv-value (never raises)
 function M.expr(ast, env)
   local ok, res = pcall(eval_node, ast, env)
-  return ok and norm(res) or NULL
+  if not ok then
+    return NULL
+  end
+  return norm(res) -- `false` is a valid result, so no and/or shortcut
 end
 
 return M

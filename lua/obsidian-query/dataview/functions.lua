@@ -364,6 +364,9 @@ R.any = function(_, args)
   end
   return false
 end
+R.none = function(env, args)
+  return not R.any(env, args)
+end
 R.all = function(_, args)
   for _, el in ipairs(as_array(args[1])) do
     local v = type(args[2]) == "function" and args[2]({ el }) or el

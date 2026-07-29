@@ -73,21 +73,11 @@ local function source_set(src, ctx)
     local out = {}
     local target = resolve_link_path(src.raw, ctx)
     local row = target and ctx.index[target]
-    if row then
-      for _, l in ipairs(row.links_out or {}) do
-        local direct = ctx.root .. "/" .. (l.target or "")
-        if ctx.index[direct] then
-          out[direct] = true
-        elseif ctx.index[direct .. ".md"] then
-          out[direct .. ".md"] = true
-        else
-          local want = vim.fn.fnamemodify(l.target or "", ":t:r"):lower()
-          for path in pairs(ctx.index) do
-            if vim.fn.fnamemodify(path, ":t:r"):lower() == want then
-              out[path] = true
-              break
-            end
-          end
+    for _, l in ipairs(row and row.links_out or {}) do
+      if l.target and l.target ~= "" then
+        local p = resolve_link_path(l.target, ctx)
+        if p then
+          out[p] = true
         end
       end
     end

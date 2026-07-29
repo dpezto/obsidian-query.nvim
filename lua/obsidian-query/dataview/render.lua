@@ -168,54 +168,85 @@ local MONTHS = {
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 }
-local MAX_MONTHS = 3
+local GRID_W = 7 * 3 -- Mo..Su, each day cell 3 display cols wide
 
-function M.calendar_lines(data)
+---Dataview shows one month at a time, opening on the current month;
+---`view` is that month's offset, moved by <Left>/<Right> (see M.shift).
+---@param data table calendar result
+---@param view integer? months from today (0 = current month)
+function M.calendar_lines(data, view)
   local lines = {}
   -- clickmap: virt-line index -> day cells {s, e (1-based display cols), paths}
-  -- consumed by the <2-LeftMouse> handler to open a per-day picker
+  -- consumed by the <LeftMouse> handler to open a per-day picker
   local clickmap = {}
   data._clickmap = clickmap
-  for mi = 1, math.min(#data.months, MAX_MONTHS) do
-    local m = data.months[mi]
-    lines[#lines + 1] = { BAR, { ("%s %d"):format(MONTHS[m.month], m.year), "RenderMarkdownH2" } }
-    lines[#lines + 1] = { BAR, { "Mo Tu We Th Fr Sa Su", "Comment" } }
-    local first_wd = (os.date("*t", os.time({ year = m.year, month = m.month, day = 1 })).wday + 5) % 7 -- 0 = Monday
-    local ndays = os.date("*t", os.time({ year = m.year, month = m.month + 1, day = 0 })).day
-    local row, cells, cellmap = { BAR }, 0, {}
-    for _ = 1, first_wd do
-      row[#row + 1] = { "   " }
-      cells = cells + 1
+  local today = data.today or os.date("*t")
+  -- os.time normalises month over/underflow, so any offset is a valid month
+  local base = os.date("*t", os.time({ year = today.year, month = today.month + (view or 0), day = 1 }))
+  local m = { year = base.year, month = base.month, days = {} }
+  for _, bucket in ipairs(data.months) do
+    if bucket.year == base.year and bucket.month == base.month then
+      m = bucket
+      break
     end
-    for day = 1, ndays do
-      local hit = m.days[day]
-      row[#row + 1] = {
-        ("%2d%s"):format(day, hit and "•" or " "),
-        hit and "RenderMarkdownLink" or "Comment",
+  end
+  -- header spans the grid (7 day cells, 3 cols each) with the arrows pinned
+  -- to its edges and the label centred, so the click targets never move as
+  -- the month changes; "▏ " = 2 display cols before it
+  local label = ("%s %d"):format(MONTHS[m.month], m.year)
+  local inner = math.max(GRID_W - 2 - width(label), 0)
+  local lpad = math.floor(inner / 2)
+  lines[#lines + 1] = {
+    BAR,
+    { "‹", "RenderMarkdownH2" },
+    { string.rep(" ", lpad) .. label .. string.rep(" ", inner - lpad), "RenderMarkdownH2" },
+    { "›", "RenderMarkdownH2" },
+  }
+  clickmap[1] = {
+    { s = 3, e = 3, shift = -1 },
+    { s = 4, e = 2 + GRID_W - 1, today = true },
+    { s = 2 + GRID_W, e = 2 + GRID_W, shift = 1 },
+  }
+  lines[#lines + 1] = { BAR, { "Mo Tu We Th Fr Sa Su", "Comment" } }
+  local first_wd = (os.date("*t", os.time({ year = m.year, month = m.month, day = 1 })).wday + 5) % 7 -- 0 = Monday
+  local ndays = os.date("*t", os.time({ year = m.year, month = m.month + 1, day = 0 })).day
+  local row, cells, cellmap = { BAR }, 0, {}
+  for _ = 1, first_wd do
+    row[#row + 1] = { "   " }
+    cells = cells + 1
+  end
+  local n_month = 0
+  for day = 1, ndays do
+    local hit = m.days[day]
+    local is_today = today.year == m.year and today.month == m.month and today.day == day
+    row[#row + 1] = {
+      ("%2d%s"):format(day, hit and "•" or " "),
+      is_today and "Special" or (hit and "RenderMarkdownLink" or "Comment"),
+    }
+    if hit then
+      n_month = n_month + #hit
+      -- "▏ " = 2 display cols, each cell 3 wide
+      cellmap[#cellmap + 1] = {
+        s = 2 + cells * 3 + 1,
+        e = 2 + (cells + 1) * 3,
+        paths = hit,
+        date = ("%04d-%02d-%02d"):format(m.year, m.month, day),
       }
-      if hit then
-        -- "▏ " = 2 display cols, each cell 3 wide
-        cellmap[#cellmap + 1] = {
-          s = 2 + cells * 3 + 1,
-          e = 2 + (cells + 1) * 3,
-          paths = hit,
-          date = ("%04d-%02d-%02d"):format(m.year, m.month, day),
-        }
+    end
+    cells = cells + 1
+    if (first_wd + day) % 7 == 0 or day == ndays then
+      lines[#lines + 1] = row
+      if #cellmap > 0 then
+        clickmap[#lines] = cellmap
       end
-      cells = cells + 1
-      if (first_wd + day) % 7 == 0 or day == ndays then
-        lines[#lines + 1] = row
-        if #cellmap > 0 then
-          clickmap[#lines] = cellmap
-        end
-        row, cells, cellmap = { BAR }, 0, {}
-      end
+      row, cells, cellmap = { BAR }, 0, {}
     end
   end
-  if #data.months > MAX_MONTHS then
-    lines[#lines + 1] = { BAR, { ("+%d more months — <CR> for all"):format(#data.months - MAX_MONTHS), "NonText" } }
-  end
-  lines[#lines + 1] = { BAR, { ("%d dated notes"):format(#data.dated), "Comment" } }
+  lines[#lines + 1] = {
+    BAR,
+    { ("%d this month · %d dated notes"):format(n_month, #data.dated), "Comment" },
+    { "  <Left>/<Right> month · <Home> today", "NonText" },
+  }
   return lines
 end
 
@@ -235,7 +266,7 @@ function M.lines(result)
   elseif data.kind == "task" then
     return M.task_lines(data)
   elseif data.kind == "calendar" then
-    return M.calendar_lines(data)
+    return M.calendar_lines(data, result.view)
   end
   return M.error_line("dataview", "unsupported result: " .. tostring(data.kind))
 end

@@ -20,13 +20,33 @@ function M.setup(opts)
         end
         return require("obsidian.actions").smart_action()
       end, { expr = true, buffer = ev.buf, desc = "Query results / Obsidian Smart Action" })
-      -- NOT expr: opening windows is forbidden during expr evaluation (E565)
-      vim.keymap.set("n", "<2-LeftMouse>", function()
-        if not M.click() then
-          local key = vim.api.nvim_replace_termcodes("<2-LeftMouse>", true, false, true)
-          vim.api.nvim_feedkeys(key, "n", false)
+      -- unhandled keys must behave normally: replay them (noremap, so the
+      -- mapping can't recurse)
+      local function fallthrough(lhs)
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(lhs, true, false, true), "n", false)
+      end
+      -- NOT expr: opening windows is forbidden during expr evaluation (E565).
+      -- Single click activates result targets; the double-click mapping keeps
+      -- the second click of a real double-click from falling through.
+      for _, lhs in ipairs({ "<LeftMouse>", "<2-LeftMouse>" }) do
+        vim.keymap.set("n", lhs, function()
+          if not M.click() then
+            fallthrough(lhs)
+          end
+        end, { buffer = ev.buf, desc = "Query result click" })
+      end
+      for lhs, delta in pairs({ ["<Left>"] = -1, ["<Right>"] = 1 }) do
+        vim.keymap.set("n", lhs, function()
+          if not M.shift(delta) then
+            fallthrough(lhs)
+          end
+        end, { buffer = ev.buf, desc = "Calendar month back/forward" })
+      end
+      vim.keymap.set("n", "<Home>", function()
+        if not M.shift(nil) then
+          fallthrough("<Home>")
         end
-      end, { buffer = ev.buf, desc = "Query result click" })
+      end, { buffer = ev.buf, desc = "Calendar back to today" })
     end,
   })
 end
@@ -92,6 +112,9 @@ local function refetch(engine, key, spec, ctx)
       entry.fetching = false
       return
     end
+    -- engines may park view state on the result (calendar month); a refetch
+    -- must not snap the user back to the current month
+    result.view = entry.result and entry.result.view or nil
     entry.result, entry.fetching, entry.stale = result, false, false
     entry.result_id = (entry.result_id or 0) + 1
     -- render-markdown's decorator silently drops updates that arrive while a
@@ -226,7 +249,7 @@ function M.cursor_in_query()
   return fence_at_cursor() ~= nil
 end
 
----Mouse entry point (<2-LeftMouse>): resolve which virt line/column of which
+---Mouse entry point (<LeftMouse>): resolve which virt line/column of which
 ---rendered block was clicked and let the owning engine handle it.
 ---@return boolean handled
 function M.click()
@@ -247,6 +270,8 @@ function M.click()
           local textoff = vim.fn.getwininfo(mpos.winid)[1].textoff
           local col = mpos.wincol - textoff
           if entry.engine.click(entry.result, vidx, col) then
+            -- a click may have changed view state (calendar arrows)
+            require("render-markdown.api").render({ buf = buf, event = "ObsidianQuery" })
             return true
           end
         end
@@ -254,6 +279,24 @@ function M.click()
     end
   end
   return false
+end
+
+---<Left>/<Right>/<Home> on a fence: shift its view (calendar month) and
+---re-render; a nil delta means "back to the current month".
+---@return boolean handled — false lets the key fall through to its default
+function M.shift(delta)
+  local fence = fence_at_cursor()
+  local buf = vim.api.nvim_get_current_buf()
+  local ctx = fence and fence.engine.shift and get_ctx(buf)
+  if not ctx then
+    return false
+  end
+  local entry = cache[fence.engine.key(fence.spec, ctx)]
+  if not (entry and entry.result and fence.engine.shift(entry.result, delta)) then
+    return false
+  end
+  require("render-markdown.api").render({ buf = buf, event = "ObsidianQuery" })
+  return true
 end
 
 -- Jump entry point: virt_lines can't hold the cursor, so results open in a picker

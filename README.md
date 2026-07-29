@@ -31,7 +31,7 @@ path:Bitacora tag:#project       ▏ 2026-07-03
   as inline virtual text.
 - **Interactive** — `<CR>` on a fence opens the result set in a
   [snacks.nvim](https://github.com/folke/snacks.nvim) picker (jumping to
-  exact lines for content matches and tasks); double-click a calendar day
+  exact lines for content matches and tasks); click a calendar day
   for that day's notes.
 - **Syntax highlighting** for both fence languages, driven by the same
   lexers that execute the queries.
@@ -129,7 +129,9 @@ Keymaps are buffer-local to vault notes and set automatically:
 | Mapping | Action |
 |---|---|
 | `<CR>` | On a query/dataview fence: open results in a picker, titled by query kind and source — `TABLE · "Coding" (24)`. Elsewhere: obsidian.nvim's smart action, unchanged. |
-| `<2-LeftMouse>` | On a calendar day with notes: picker of that day's notes, titled `Notes · 2026-07-29`. Elsewhere: default double-click. |
+| `<LeftMouse>` | Single click on a calendar day with notes: picker of that day's notes, titled `Notes · 2026-07-29`. On the `‹` / `›` header arrows: previous/next month. On the month label: back to today. Elsewhere: normal click. |
+| `<Left>` / `<Right>` | On a calendar fence: previous/next month. Elsewhere: unchanged. |
+| `<Home>` | On a calendar fence: back to the current month. Elsewhere: unchanged. |
 
 ## Examples
 
@@ -163,12 +165,13 @@ GROUP BY section
 ```
 ````
 
-A month of daily notes as a calendar (double-click a day to open it):
+Daily notes as a calendar — one month at a time, opening on the current
+month, `<Left>`/`<Right>` (or the `‹` `›` arrows) to change month, `<Home>`
+(or the month label) for today, click a day to open its notes:
 
 ````
 ```dataview
 CALENDAR FROM "Bitacora"
-WHERE file.day >= date(2026-06-01) AND file.day <= date(2026-06-30)
 ```
 ````
 

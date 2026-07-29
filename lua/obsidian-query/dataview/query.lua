@@ -396,7 +396,10 @@ local function project(header, rows, ctx)
     table.sort(dated, function(a, b)
       return a.date.ts > b.date.ts
     end)
-    return { kind = "calendar", months = months, dated = dated }
+    -- the view opens on the current month, so the renderer needs "today"
+    local t = ctx.now or os.date("*t")
+    local today = { year = t.year, month = t.month, day = t.day }
+    return { kind = "calendar", months = months, dated = dated, today = today }
   elseif header.kind == "task" then
     local groups, by_file, order = {}, {}, {}
     local grouped = #rows > 0 and rows[1].rows ~= nil and value.typeof(rows[1].rows) == "array"

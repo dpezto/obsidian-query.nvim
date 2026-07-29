@@ -290,30 +290,64 @@ res = run('CALENDAR FROM "Papers"')
 check(res.ok and #res.data.months == 0 and #res.data.dated == 0, "dateless rows dropped")
 
 local dv_render = require("obsidian-query.dataview.render")
-local cal = dv_render.calendar_lines(run("CALENDAR").data)
-local flat = {}
-for _, l in ipairs(cal) do
-  local parts = {}
-  for _, seg in ipairs(l) do
-    parts[#parts + 1] = seg[1]
+local function flatten(lines)
+  local flat = {}
+  for _, l in ipairs(lines) do
+    local parts = {}
+    for _, seg in ipairs(l) do
+      parts[#parts + 1] = seg[1]
+    end
+    flat[#flat + 1] = table.concat(parts)
   end
-  flat[#flat + 1] = table.concat(parts)
+  return flat
 end
-check(flat[1]:find("July 2026"), "grid header")
+-- one month at a time, opening on "today" (NOW = 2026-07-28)
+local flat = flatten(dv_render.calendar_lines(run("CALENDAR").data))
+check(flat[1]:find("‹") and flat[1]:find("July 2026") and flat[1]:find("›$"), "grid header with arrows")
+-- header spans the grid ("▏ " + 7 day cells) so the arrows sit still
+check(vim.fn.strdisplaywidth(flat[1]) == 2 + 21, "header spans the grid width")
 check(flat[2]:find("Mo Tu We"), "weekday row")
 check(flat[3]:find("1•"), "day 1 marked (2026-07-01 is a Wednesday)")
-check(flat[#flat]:find("2 dated notes"), "dated count tail")
+check(flat[#flat]:find("2 this month · 2 dated notes"), "month + total tail")
+for _, l in ipairs(flat) do
+  check(not l:find("August") and not l:find("June"), "only the current month rendered")
+end
+
+-- <Left>/<Right> shift the view; months without notes still render
+local next_month = flatten(dv_render.calendar_lines(run("CALENDAR").data, 1))
+check(next_month[1]:find("August 2026"), "view +1 -> next month")
+check(next_month[#next_month]:find("0 this month"), "empty month renders with no dots")
+check(flatten(dv_render.calendar_lines(run("CALENDAR").data, -13))[1]:find("June 2025"), "view -13 wraps the year")
+
+local cres2 = run("CALENDAR")
+check(dv_render.lines(cres2) ~= nil and require("obsidian-query.dataview").shift(cres2, 2), "shift() handles calendars")
+check(cres2.view == 2, "shift accumulates")
+check(not require("obsidian-query.dataview").shift(run("LIST"), 1), "shift ignores other kinds")
+check(flatten(dv_render.lines(cres2))[1]:find("September 2026"), "lines() honours the view")
 
 local cal_data = run("CALENDAR").data
 dv_render.calendar_lines(cal_data)
 local cmap = cal_data._clickmap
 check(cmap ~= nil and next(cmap) ~= nil, "clickmap built")
 local any_cell
-for _, cells in pairs(cmap) do
-  any_cell = cells[1]
-  break
+for vidx, cells in pairs(cmap) do
+  if vidx ~= 1 then -- line 1 holds the header arrows, not day cells
+    any_cell = cells[1]
+    break
+  end
 end
 check(any_cell and any_cell.s > 2 and any_cell.e > any_cell.s and #any_cell.paths > 0, "clickmap cell shape")
+check(cmap[1] and cmap[1][1].shift == -1 and cmap[1][2].today and cmap[1][3].shift == 1, "header cells clickable")
+local dv = require("obsidian-query.dataview")
+local clicked = run("CALENDAR")
+dv_render.lines(clicked)
+local arrows = clicked.data._clickmap[1]
+check(dv.click(clicked, 1, arrows[3].s) and clicked.view == 1, "clicking › advances a month")
+check(dv.click(clicked, 1, arrows[1].s) and clicked.view == 0, "clicking ‹ goes back")
+dv.shift(clicked, 5)
+check(dv.click(clicked, 1, arrows[2].s) and clicked.view == 0, "clicking the month label returns to today")
+dv.shift(clicked, 5)
+check(dv.shift(clicked, nil) and clicked.view == 0, "shift(nil) jumps to today")
 
 -- inline row caps: opt-in via config
 require("obsidian-query.config").set({ max_inline_rows = 15 })

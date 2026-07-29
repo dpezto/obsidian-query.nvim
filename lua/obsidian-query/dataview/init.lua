@@ -148,7 +148,19 @@ function M.pick(spec, ctx, result)
   open_items(("%s (%d)"):format(title, #items), items)
 end
 
----Double-click on a calendar day cell -> picker of that day's notes.
+---Shift a calendar's shown month (<Left>/<Right>); no-op for other results.
+---@param delta integer? months to move; nil jumps back to the current month
+---@return boolean handled
+function M.shift(result, delta)
+  if not (result.ok and result.data.kind == "calendar") then
+    return false
+  end
+  result.view = delta and (result.view or 0) + delta or 0
+  return true
+end
+
+---Click on a calendar: the header arrows change month, the month label
+---jumps back to today, a day cell opens a picker of that day's notes.
 ---@return boolean handled
 function M.click(result, vidx, col)
   local map = result.ok and result.data._clickmap
@@ -157,7 +169,10 @@ function M.click(result, vidx, col)
     return false
   end
   for _, cell in ipairs(cells) do
-    if col >= cell.s and col <= cell.e and #cell.paths > 0 then
+    if (cell.shift or cell.today) and col >= cell.s and col <= cell.e then
+      return M.shift(result, cell.shift) -- month label: shift nil -> today
+    end
+    if col >= cell.s and col <= cell.e and cell.paths and #cell.paths > 0 then
       local items = {}
       for _, p in ipairs(cell.paths) do
         items[#items + 1] = {

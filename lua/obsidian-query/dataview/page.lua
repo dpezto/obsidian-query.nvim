@@ -153,7 +153,7 @@ end
 ---@param ctx table
 ---@return table page
 function M.build(abs_path, row, ctx)
-  local rel = abs_path:sub(#ctx.root + 2)
+  local rel = vim.fs.relpath(ctx.root, abs_path) or abs_path
   local name = vim.fn.fnamemodify(abs_path, ":t:r")
   local sup = ctx.sup and ctx.sup[abs_path] or { fields = {}, headers = {} }
 
@@ -189,7 +189,7 @@ function M.build(abs_path, row, ctx)
   end
   local inlinks = {}
   for _, p in ipairs(ctx.inlinks and ctx.inlinks[abs_path] or {}) do
-    inlinks[#inlinks + 1] = value.link(p:sub(#ctx.root + 2))
+    inlinks[#inlinks + 1] = value.link(vim.fs.relpath(ctx.root, p) or p)
   end
 
   local tasks = M.build_tasks(abs_path, row.tasks, sup.headers or {}, rel)

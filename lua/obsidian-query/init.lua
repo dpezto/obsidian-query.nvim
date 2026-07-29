@@ -154,11 +154,7 @@ function M.fence_query()
   return ts_query
 end
 
--- iter_matches values: TSNode on nvim 0.10, TSNode[] on 0.11+
-function M.to_node(nodes)
-  return type(nodes) == "table" and nodes[#nodes] or nodes
-end
-local get_query, to_node = M.fence_query, M.to_node
+local get_query = M.fence_query
 
 ---render-markdown custom-handler parse
 ---@param ctx render.md.handler.Context
@@ -170,14 +166,16 @@ function M.parse(ctx)
   local marks = {}
   for _, match in query:iter_matches(ctx.root, ctx.buf) do
     local lang, body, block
+    -- iter_matches yields TSNode[] per capture (nvim 0.11+); the fence query
+    -- captures each name once, so the last node is the node
     for id, nodes in pairs(match) do
       local name = query.captures[id]
       if name == "lang" then
-        lang = to_node(nodes)
+        lang = nodes[#nodes]
       elseif name == "body" then
-        body = to_node(nodes)
+        body = nodes[#nodes]
       elseif name == "block" then
-        block = to_node(nodes)
+        block = nodes[#nodes]
       end
     end
     local engine = lang and engines[vim.treesitter.get_node_text(lang, ctx.buf)]

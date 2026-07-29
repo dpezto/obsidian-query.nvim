@@ -102,12 +102,11 @@ function M.parse(ctx)
     return {}
   end
   local marks = {}
-  local to_node = require("obsidian-query").to_node
   local query = get_query()
   local spans = {}
   for _, match in query:iter_matches(ctx.root, ctx.buf) do
     for _, nodes in pairs(match) do
-      local node = to_node(nodes)
+      local node = nodes[#nodes] -- TSNode[] per capture (nvim 0.11+)
       local text = vim.treesitter.get_node_text(node, ctx.buf)
       local expr = text:match("^`=%s+(.-)`$")
       if expr then

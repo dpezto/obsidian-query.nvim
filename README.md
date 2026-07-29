@@ -46,7 +46,7 @@ ever contain the query.
 
 ## Requirements
 
-- Neovim ≥ 0.10
+- Neovim ≥ 0.11
 - [obsidian.nvim](https://github.com/obsidian-nvim/obsidian.nvim)
   (community fork) with the cache enabled — the dataview engine reads its
   metadata index:
@@ -57,7 +57,7 @@ ever contain the query.
 - [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim)
 - [snacks.nvim](https://github.com/folke/snacks.nvim) (pickers)
 - [ripgrep](https://github.com/BurntSushi/ripgrep) (already required by obsidian.nvim)
-- a Nerd Font, for the key glyphs in result hints (` `, ` `, `󰌑 `)
+- a Nerd Font, for the key glyphs in result hints
 
 ## Installation
 

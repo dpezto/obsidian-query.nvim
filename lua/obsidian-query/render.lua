@@ -22,7 +22,12 @@ function M.anchored_mark(block, buf, lines)
     conceal = false,
     start_row = anchor,
     start_col = 0,
-    opts = { virt_lines = lines, virt_lines_above = above },
+    opts = {
+      virt_lines = lines,
+      virt_lines_above = above,
+      -- wide results (tables) scroll with the window instead of wrapping
+      virt_lines_overflow = "scroll",
+    },
   }
 end
 

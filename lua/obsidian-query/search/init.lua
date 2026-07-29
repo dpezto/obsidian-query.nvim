@@ -58,7 +58,7 @@ function M.run(spec, ctx, cb)
             fd:close()
           end
         end
-        local rel = path:sub(#ctx.root + 2)
+        local rel = vim.fs.relpath(ctx.root, path) or path
         local ok, locs = eval.run(spec.ast, eval.note(path, rel, content))
         if ok then
           files[#files + 1] = { path = path, matches = locs }

@@ -97,13 +97,9 @@ end
 
 local SPANNERS = { query = query_spans, dataview = dataview_spans }
 
--- fence query + node compat shared with the render handler
+-- fence query shared with the render handler
 local function get_query()
   return require("obsidian-query").fence_query()
-end
-
-local function to_node(nodes)
-  return require("obsidian-query").to_node(nodes)
 end
 
 ---Byte offset (1-based) within `body` -> buffer (row, col), given body start.
@@ -144,9 +140,9 @@ function M.refresh(buf)
     for id, nodes in pairs(match) do
       local name = query.captures[id]
       if name == "lang" then
-        lang = to_node(nodes)
+        lang = nodes[#nodes]
       elseif name == "body" then
-        body = to_node(nodes)
+        body = nodes[#nodes]
       end
     end
     local spanner = lang and SPANNERS[vim.treesitter.get_node_text(lang, buf)]

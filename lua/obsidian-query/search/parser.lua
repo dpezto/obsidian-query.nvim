@@ -94,7 +94,7 @@ local function lex(src)
       i = rest
     else
       -- word: everything up to whitespace/parens/quote; '/' stays word-internal
-      -- (regex only when a token *starts* with '/'), so path:Bitacora/sub works
+      -- (regex only when a token *starts* with '/'), so path:Journal/sub works
       local start = i
       local w = src:match('^[^%s%(%)"]+', i)
       i = i + #w

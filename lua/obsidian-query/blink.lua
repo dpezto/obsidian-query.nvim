@@ -6,17 +6,17 @@ local source = {}
 ---------------------------------------------------------------- static docs
 
 local QUERY_OPS = {
-  { "tag:", "Notes with a tag (frontmatter or inline, nested): `tag:#maestría`" },
-  { "path:", "Path contains: `path:Bitacora`" },
+  { "tag:", "Notes with a tag (frontmatter or inline, nested): `tag:#project`" },
+  { "path:", "Path contains: `path:Projects`" },
   { "file:", "Filename contains: `file:2026-07`" },
-  { "content:", "Body text contains (excludes filename): `content:potencia`" },
-  { "line:(", "Terms on the same line: `line:(potencia total)`" },
-  { "section:(", "Terms under the same heading: `section:(alinear calibrar)`" },
-  { "block:(", "Terms in the same paragraph: `block:(potencia bombeo)`" },
+  { "content:", "Body text contains (excludes filename): `content:meeting`" },
+  { "line:(", "Terms on the same line: `line:(status update)`" },
+  { "section:(", "Terms under the same heading: `section:(setup install)`" },
+  { "block:(", "Terms in the same paragraph: `block:(quarterly report)`" },
   { "task:", "Terms in any checkbox item; `task:()` = any task" },
   { "task-todo:", "Terms in unchecked tasks" },
   { "task-done:", "Terms in checked tasks" },
-  { "match-case:(", "Force case-sensitive: `match-case:(MTS)`" },
+  { "match-case:(", "Force case-sensitive: `match-case:(API)`" },
   { "ignore-case:(", "Force case-insensitive" },
 }
 
@@ -27,7 +27,7 @@ local DQL_KEYWORDS = {
   { "TASK", "Query task items instead of notes" },
   { "CALENDAR", "Month grids of dated notes: `CALENDAR file.day`" },
   { "FROM", "Source: `#tag`, `\"folder\"`, `[[note]]`, `outgoing([[note]])`, AND/OR/-" },
-  { "WHERE", "Filter rows: `WHERE lang = \"es\" AND priority > 1`" },
+  { "WHERE", "Filter rows: `WHERE status = \"open\" AND priority > 1`" },
   { "SORT", "Order rows: `SORT file.name DESC, priority ASC`" },
   { "GROUP BY", "Bucket rows; each group gets `key` and `rows`" },
   { "FLATTEN", "One row per array element: `FLATTEN file.tags AS t`" },

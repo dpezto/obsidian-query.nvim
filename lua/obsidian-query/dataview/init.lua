@@ -76,10 +76,13 @@ end
 
 -- <C-t> in the TASK picker: toggle the checkbox in its file (through the
 -- buffer, so open buffers stay consistent; :write fires the cache-stale
--- autocmds and the next render picks the change up)
-local function toggle_task(picker, item)
+-- autocmds and the next render picks the change up). Backend-agnostic: the
+-- picker module wires it to whichever backend is active and re-draws the row.
+---@param item table picker item
+---@return boolean? done new state, nil when nothing was toggled
+local function toggle_item(item)
   if not (item and item.pos and item.file) then
-    return
+    return nil
   end
   local buf = vim.fn.bufadd(item.file)
   vim.fn.bufload(buf)
@@ -87,33 +90,21 @@ local function toggle_task(picker, item)
   local line = vim.api.nvim_buf_get_lines(buf, lnum - 1, lnum, false)[1]
   local toggled = line and M.toggle_task_line(line)
   if not toggled then
-    return
+    return nil
   end
   vim.bo[buf].buflisted = true
   vim.api.nvim_buf_set_lines(buf, lnum - 1, lnum, false, { toggled })
   vim.api.nvim_buf_call(buf, function()
     vim.cmd("silent write")
   end)
-  -- reflect it in the open picker row (display segs 3/4 = checkbox, text)
+  -- reflect it in the picker row (display segs 3/4 = checkbox, text)
   local done = toggled:match("^%s*.-%[[^ ]%]") ~= nil
-  item.display[3] = { done and "󰄲 " or "󰄱 ", done and "Comment" or "Special" }
+  item.display[3] = { base.checkbox(done), done and "Comment" or "Special" }
   item.display[4][2] = done and "Comment" or "Normal"
-  pcall(function()
-    picker.list.dirty = true -- render() is a no-op unless marked dirty
-    picker.list:render()
-  end)
-  pcall(function()
-    picker.preview:refresh(picker) -- drop the memoized item so the file re-reads
-  end)
+  return done
 end
 
-local TASK_PICKER_OPTS = {
-  actions = { toggle_task = toggle_task },
-  win = {
-    input = { keys = { ["<c-t>"] = { "toggle_task", mode = { "n", "i" }, desc = "Toggle task" } } },
-    list = { keys = { ["<c-t>"] = { "toggle_task", desc = "Toggle task" } } },
-  },
-}
+local TASK_PICKER_OPTS = { toggle = toggle_item }
 
 function M.pick(spec, ctx, result)
   if not result.ok then
@@ -161,7 +152,7 @@ function M.pick(spec, ctx, result)
           display = {
             { note_name(task.path), "Directory" },
             { "  " },
-            { task.completed and "󰄲 " or "󰄱 ", task.completed and "Comment" or "Special" },
+            { base.checkbox(task.completed), task.completed and "Comment" or "Special" },
             { task.text, task.completed and "Comment" or "Normal" },
           },
         }

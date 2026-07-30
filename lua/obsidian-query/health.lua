@@ -84,6 +84,20 @@ function M.check()
     end
   end
 
+  -- picker backend
+  local picker = require("obsidian-query.picker")
+  local want = require("obsidian-query.config").opts.picker.backend
+  local got = picker.backend()
+  if got == "select" then
+    local msg = "no picker plugin found — results open via vim.ui.select (no preview, no <C-t> task toggle)"
+    if want ~= "auto" and want ~= "select" then
+      msg = ("picker.backend = %q but it is not available — falling back to vim.ui.select"):format(want)
+    end
+    h.warn(msg)
+  else
+    h.ok(("picker backend: %s%s"):format(got, want == "auto" and " (auto)" or ""))
+  end
+
   -- blink source
   if pcall(require, "obsidian-query.blink") then
     h.ok("blink source module loads")

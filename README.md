@@ -25,14 +25,14 @@ while you edit. Your files on disk only ever contain the query.
 
 ## What it does — and doesn't
 
-| ✅ Supported | ❌ Out of scope |
-|---|---|
-| ` ```query ` fences — the full core-Search language | `dataviewjs` fences (JavaScript, needs Obsidian's runtime) |
-| ` ```dataview ` fences — DQL `TABLE` / `LIST` / `TASK` / `CALENDAR` | `$=` inline JS |
-| Inline `` `= expr` `` queries in prose | Dataview settings (custom date formats, result limits…) |
-| Result pickers, calendar navigation, task toggling | Vaults not managed by obsidian.nvim |
-| Context-aware completion (blink.cmp) | Timezones / millisecond dates |
-| Fence syntax highlighting, multi-vault support | |
+| ✅ Supported                                                        | ❌ Out of scope                                            |
+| ------------------------------------------------------------------- | ---------------------------------------------------------- |
+| ` ```query ` fences — the full core-Search language                 | `dataviewjs` fences (JavaScript, needs Obsidian's runtime) |
+| ` ```dataview ` fences — DQL `TABLE` / `LIST` / `TASK` / `CALENDAR` | `$=` inline JS                                             |
+| Inline `` `= expr` `` queries in prose                              | Dataview settings (custom date formats, result limits…)    |
+| Result pickers, calendar navigation, task toggling                  | Vaults not managed by obsidian.nvim                        |
+| Context-aware completion (blink.cmp)                                | Timezones / millisecond dates                              |
+| Fence syntax highlighting, multi-vault support                      |                                                            |
 
 ## Features
 
@@ -54,9 +54,12 @@ by `path:` / `file:` / bare filename — attachments included; content operators
 
 ### Interactive results
 
-`<CR>` on any fence opens the result set in a [snacks.nvim](https://github.com/folke/snacks.nvim)
-picker — jumping to exact lines for content matches and tasks. In TASK pickers, `<C-t>` toggles
-the selected task's checkbox in its file and updates the row live.
+`<CR>` on any fence opens the result set in your picker — jumping to exact lines for content
+matches and tasks. [snacks.nvim](https://github.com/folke/snacks.nvim),
+[telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) and
+[fzf-lua](https://github.com/ibhagwan/fzf-lua) are supported (auto-detected in that order),
+with `vim.ui.select` as the no-plugin fallback. In TASK pickers, `<C-t>` toggles the selected
+task's checkbox in its file and updates the row live.
 
 <img alt="A TASK query picker with live checkbox toggling" src="assets/tasks.gif" width="850">
 
@@ -90,15 +93,15 @@ highlights is exactly what parses.
 
 ## Requirements
 
-| Dependency | Why | Required |
-|---|---|---|
-| Neovim ≥ 0.11 | | ✅ |
-| [obsidian.nvim](https://github.com/obsidian-nvim/obsidian.nvim) (community fork) | vault/workspace management; its cache is the dataview engine's metadata index | ✅ (with `cache = { enabled = true }`) |
-| [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim) | the custom-handler API that puts results on screen | ✅ |
-| [snacks.nvim](https://github.com/folke/snacks.nvim) | result pickers | ✅ |
-| [ripgrep](https://github.com/BurntSushi/ripgrep) | supplemental index (inline fields, headers, backlinks) — already required by obsidian.nvim | ✅ |
-| a Nerd Font | key glyphs in result hints (`󰌑`), task checkboxes | ✅ |
-| [blink.cmp](https://github.com/Saghen/blink.cmp) | completion source | optional |
+| Dependency                                                                                                                                                                | Why                                                                                                                                 | Required                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| Neovim ≥ 0.11                                                                                                                                                             |                                                                                                                                     | ✅                                     |
+| [obsidian.nvim](https://github.com/obsidian-nvim/obsidian.nvim) (community fork)                                                                                          | vault/workspace management; its cache is the dataview engine's metadata index                                                       | ✅ (with `cache = { enabled = true }`) |
+| [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim)                                                                                      | the custom-handler API that puts results on screen                                                                                  | ✅                                     |
+| [snacks.nvim](https://github.com/folke/snacks.nvim) / [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) / [fzf-lua](https://github.com/ibhagwan/fzf-lua) | result pickers — any one of them; without one, results open via `vim.ui.select` (no preview, no `<C-t>` toggle)                     | recommended                            |
+| [ripgrep](https://github.com/BurntSushi/ripgrep)                                                                                                                          | supplemental index (inline fields, headers, backlinks) — already required by obsidian.nvim                                          | ✅                                     |
+| a Nerd Font                                                                                                                                                               | key glyphs in result hints, task checkboxes — set `icons = "ascii"` (or `vim.g.have_nerd_font = false`) to use plain-text fallbacks | optional                               |
+| [blink.cmp](https://github.com/Saghen/blink.cmp)                                                                                                                          | completion source                                                                                                                   | optional                               |
 
 ## Installation
 
@@ -131,7 +134,8 @@ require("obsidian").setup({ cache = { enabled = true }, --[[ ... ]] })
 ```
 
 Then run `:checkhealth obsidian-query` — it probes every external coupling (ripgrep,
-treesitter, render-markdown API, obsidian.nvim cache schema and workspace match).
+treesitter, render-markdown API, obsidian.nvim cache schema and workspace match, and which
+picker backend resolved).
 
 <details>
 <summary><b>Longhand handler wiring</b> (if you need to compose with your own handlers)</summary>
@@ -158,6 +162,25 @@ custom_handlers = {
 </details>
 
 <details>
+<summary><b>Fence label icons</b> (mini.icons users)</summary>
+
+render-markdown looks the fence label icon up by language string through your icon provider.
+With **nvim-web-devicons** the plugin registers `dataview`/`query` icons automatically. With
+**mini.icons** there is no registration API (it is config-only by design), so add them to your
+own setup:
+
+```lua
+require("mini.icons").setup({
+  filetype = {
+    dataview = { glyph = "󰆼", hl = "MiniIconsBlue" },
+    query = { glyph = "󰍉", hl = "MiniIconsPurple" },
+  },
+})
+```
+
+</details>
+
+<details>
 <summary><b>blink.cmp source</b> (optional completion)</summary>
 
 ```lua
@@ -178,16 +201,26 @@ Defaults (calling `setup()` is only needed to change them; lazy.nvim's `opts = {
 ```lua
 require("obsidian-query").setup({
   picker = {
-    -- "file": snacks' stock file formatter (paths + icons).
+    -- "auto": first available of snacks > telescope > fzf-lua, falling back
+    -- to vim.ui.select. Or pin one: "snacks" | "telescope" | "fzf-lua" | "select".
+    backend = "auto",
+    -- "file": plain file rows (snacks' stock formatter / paths elsewhere).
     -- "rich": query-shaped rows — dates, table cells, source note + task text.
     style = "file",
   },
+  -- "auto": nerd-font glyphs unless vim.g.have_nerd_font == false.
+  -- "ascii" forces plain-text key hints (<CR>) and checkboxes ([x]/[ ]).
+  icons = "auto",
   -- Cap inline-rendered rows/notes/tasks; excess becomes a "+N more — 󰌑 for all"
-  -- line. nil = unlimited. With unlimited tall results, j/k jump across the
-  -- whole virt_lines block; scroll with <C-e>/<C-y> or use the <CR> picker.
-  max_inline_rows = nil,
+  -- line (the <CR> picker always holds the full set). nil = unlimited — beware:
+  -- the cursor can't enter virtual lines, so j/k jump across the whole block.
+  max_inline_rows = 12,
 })
 ```
+
+Backend notes: previews and the live `<C-t>` row update are richest on snacks; telescope gets
+a quickfix-style preview and full toggling; fzf-lua jumps and toggles but shows no preview and
+refreshes toggled rows on the next open; `vim.ui.select` only jumps.
 
 ### Keymaps
 
@@ -195,13 +228,13 @@ Buffer-local to vault notes, set automatically when a note is entered (on obsidi
 `ObsidianNoteEnter` event). Every mapping falls through to its normal behavior when the cursor
 isn't on a query:
 
-| Mapping | On a query | Elsewhere |
-|---|---|---|
-| `<CR>` | Open results in a picker, titled by query kind and source — `TABLE · "Coding" (24)` | obsidian.nvim's `smart_action`, unchanged |
-| `<LeftMouse>` | Calendar day with notes → picker of that day's notes (`Notes · 2026-07-29`); `‹`/`›` arrows → change month; month label → today | normal click |
-| `<Left>` / `<Right>` | Calendar: previous/next month | unchanged |
-| `<Home>` | Calendar: back to the current month | unchanged |
-| `<C-t>` | Inside a TASK picker: toggle the selected task's checkbox in its file | — |
+| Mapping              | On a query                                                                                                                      | Elsewhere                                 |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `<CR>`               | Open results in a picker, titled by query kind and source — `TABLE · "Coding" (24)`                                             | obsidian.nvim's `smart_action`, unchanged |
+| `<LeftMouse>`        | Calendar day with notes → picker of that day's notes (`Notes · 2026-07-29`); `‹`/`›` arrows → change month; month label → today | normal click                              |
+| `<Left>` / `<Right>` | Calendar: previous/next month                                                                                                   | unchanged                                 |
+| `<Home>`             | Calendar: back to the current month                                                                                             | unchanged                                 |
+| `<C-t>`              | Inside a TASK picker: toggle the selected task's checkbox in its file                                                           | —                                         |
 
 There is currently no opt-out or remap option for these — open an issue if you need one.
 
@@ -219,18 +252,18 @@ stale, and re-renders — queries never show a different vault's results.
 
 Words, `"phrases"`, `/regex/`, implicit AND, `OR`, `-` negation, `(...)` grouping, and:
 
-| Operator | Matches |
-|---|---|
-| `file:` | file name (any vault file, attachments included) |
-| `path:` | full path |
-| `content:` | note body |
-| `tag:` | frontmatter and inline tags, nested (`#a/b` matches `tag:#a`) |
-| `line:(...)` | all terms on one line |
-| `section:(...)` | all terms under one heading |
-| `block:(...)` | all terms in one block (paragraph/list item) |
-| `task:` / `task-todo:` / `task-done:` | task text, optionally filtered by state |
-| `match-case:(...)` / `ignore-case:(...)` | case override for the group |
-| `[property]` / `[property:value]` | frontmatter property existence / value |
+| Operator                                 | Matches                                                       |
+| ---------------------------------------- | ------------------------------------------------------------- |
+| `file:`                                  | file name (any vault file, attachments included)              |
+| `path:`                                  | full path                                                     |
+| `content:`                               | note body                                                     |
+| `tag:`                                   | frontmatter and inline tags, nested (`#a/b` matches `tag:#a`) |
+| `line:(...)`                             | all terms on one line                                         |
+| `section:(...)`                          | all terms under one heading                                   |
+| `block:(...)`                            | all terms in one block (paragraph/list item)                  |
+| `task:` / `task-todo:` / `task-done:`    | task text, optionally filtered by state                       |
+| `match-case:(...)` / `ignore-case:(...)` | case override for the group                                   |
+| `[property]` / `[property:value]`        | frontmatter property existence / value                        |
 
 Matching is smart-case, like Obsidian: lowercase terms match case-insensitively, any uppercase
 makes the term case-sensitive.
@@ -263,15 +296,15 @@ names; inline `Key:: value` fields (repeated keys merge into arrays).
 
 **Functions** (62, see `lua/obsidian-query/dataview/functions.lua`):
 
-| Category | Functions |
-|---|---|
-| Constructors | `array` `date` `dur` `elink` `embed` `link` `list` `number` `object` `string` `typeof` |
-| Numeric | `average` `ceil` `floor` `max` `min` `round` `sum` `trunc` |
-| Strings | `containsword` `endswith` `lower` `padleft` `padright` `replace` `split` `startswith` `substring` `trim` `truncate` `upper` |
-| Regex | `regexmatch` `regexreplace` `regextest` |
-| Lists | `all` `any` `contains` `econtains` `filter` `first` `flat` `join` `last` `length` `map` `maxby` `minby` `none` `nonnull` `reverse` `slice` `sort` `unique` |
-| Dates & formatting | `currencyformat` `dateformat` `durationformat` `localtime` `striptime` |
-| Misc | `choice` `default` `extract` `hash` `meta` |
+| Category           | Functions                                                                                                                                                  |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Constructors       | `array` `date` `dur` `elink` `embed` `link` `list` `number` `object` `string` `typeof`                                                                     |
+| Numeric            | `average` `ceil` `floor` `max` `min` `round` `sum` `trunc`                                                                                                 |
+| Strings            | `containsword` `endswith` `lower` `padleft` `padright` `replace` `split` `startswith` `substring` `trim` `truncate` `upper`                                |
+| Regex              | `regexmatch` `regexreplace` `regextest`                                                                                                                    |
+| Lists              | `all` `any` `contains` `econtains` `filter` `first` `flat` `join` `last` `length` `map` `maxby` `minby` `none` `nonnull` `reverse` `slice` `sort` `unique` |
+| Dates & formatting | `currencyformat` `dateformat` `durationformat` `localtime` `striptime`                                                                                     |
+| Misc               | `choice` `default` `extract` `hash` `meta`                                                                                                                 |
 
 **Regex** (both `/regex/` search terms and the `regex*` functions) is translated to Vim regex:
 alternation, `{n,m}`, character classes, `\b`, non-capturing groups and all four lookarounds
@@ -302,13 +335,13 @@ GROUP BY file.link
 ```
 ````
 
-Recently modified Spanish-language notes:
+Recently modified notes in a folder:
 
 ````markdown
 ```dataview
-TABLE lang, created AS "Started"
-FROM "Bitacora"
-WHERE lang = "es" AND file.mtime >= date(today) - dur(30 days)
+TABLE status, created AS "Started"
+FROM "Journal"
+WHERE file.mtime >= date(today) - dur(30 days)
 SORT file.name DESC
 LIMIT 10
 ```
@@ -318,7 +351,7 @@ Daily-notes activity as a heat-mapped calendar:
 
 ````markdown
 ```dataview
-CALENDAR FROM "Bitacora"
+CALENDAR FROM "Journal"
 ```
 ````
 

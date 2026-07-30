@@ -209,7 +209,11 @@ require("obsidian-query").setup({
     style = "file",
   },
   -- "auto": nerd-font glyphs unless vim.g.have_nerd_font == false.
-  -- "ascii" forces plain-text key hints (<CR>) and checkboxes ([x]/[ ]).
+  -- "ascii" forces plain-text key hints (<CR>) and raw checkboxes ([x]/[ ]/[-]).
+  -- Task glyphs come from render-markdown's own `checkbox` config — its
+  -- `unchecked`/`checked` icons plus any `custom` entry (e.g. raw = "[-]"), so
+  -- results match the checkboxes in the buffer. States it has no entry for get
+  -- the list bullet plus the raw char (● ~), the same way the buffer shows them.
   icons = "auto",
   -- Cap inline-rendered rows/notes/tasks; excess becomes a "+N more — 󰌑 for all"
   -- line (the <CR> picker always holds the full set). nil = unlimited — beware:

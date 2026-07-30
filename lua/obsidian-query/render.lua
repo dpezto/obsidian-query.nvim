@@ -55,14 +55,85 @@ function M.key(lhs)
   return KEY_ICONS[lhs] or (lhs .. " ")
 end
 
----Task checkbox glyph, trailing-padded.
----@param done boolean
----@return string
-function M.checkbox(done)
-  if not require("obsidian-query.config").nerd_font() then
-    return done and "[x] " or "[ ] "
+---@class obsidian-query.Checkbox
+---@field icon string trailing-padded glyph
+---@field highlight string
+---@field scope_highlight string? highlight for the task text (strike-through, …)
+
+---render-markdown's component for a raw state, nil when render-markdown isn't
+---loaded or its checkbox rendering is off. Custom states are matched on `raw`
+---the same way render-markdown does it (lib/resolved.lua: keyed by `raw:lower()`).
+---A state with no component falls back to the list bullet plus the bare state
+---char — which is what the buffer shows for it: render-markdown gives up on the
+---checkbox and renders the line as an ordinary list item (`● [~] text`).
+---@param status string
+---@return obsidian-query.Checkbox?
+local function rm_checkbox(status)
+  local ok, state = pcall(require, "render-markdown.state")
+  if not ok then
+    return nil
   end
-  return done and "󰄲 " or "󰄱 "
+  -- ponytail: buffer 0 — in the picker that's the picker buffer, so per-filetype
+  -- `overrides` don't reach here. Thread a buf through if anyone ever sets them.
+  local got, cfg = pcall(function()
+    return state.get(0)
+  end)
+  if not got or not cfg or not cfg.checkbox or cfg.checkbox.enabled == false then
+    return nil
+  end
+  local component
+  if status == " " then
+    component = cfg.checkbox.unchecked
+  elseif status == "x" or status == "X" then
+    component = cfg.checkbox.checked
+  else
+    local raw = ("[%s]"):format(status):lower()
+    for _, custom in pairs(cfg.checkbox.custom or {}) do
+      if custom.raw and custom.raw:lower() == raw then
+        component = { icon = custom.rendered, highlight = custom.highlight, scope_highlight = custom.scope_highlight }
+        break
+      end
+    end
+    if not component then
+      local icons = cfg.bullet and cfg.bullet.icons
+      local bullet = type(icons) == "table" and icons[1] or icons
+      component = {
+        icon = ("%s %s"):format(type(bullet) == "string" and bullet or "●", status),
+        highlight = "RenderMarkdownBullet",
+      }
+    end
+  end
+  if not component or type(component.icon) ~= "string" then
+    return nil
+  end
+  local icon = component.icon
+  if not icon:match("%s$") then
+    icon = icon .. " "
+  end
+  return { icon = icon, highlight = component.highlight, scope_highlight = component.scope_highlight }
+end
+
+---Task checkbox component for a raw state char, icon trailing-padded.
+---Mirrors render-markdown: `checkbox.unchecked` / `checkbox.checked` plus any
+---`checkbox.custom` entry whose `raw` matches, so results look like the buffer.
+---States it has no component for get the list bullet plus the bare state char
+---(`● ~ `), matching how the buffer renders them.
+---@param status string the single char inside the brackets (" ", "x", "-", …)
+---@return obsidian-query.Checkbox
+function M.checkbox(status)
+  status = status or " "
+  local done = status == "x" or status == "X"
+  if require("obsidian-query.config").nerd_font() then
+    local component = rm_checkbox(status)
+    if component then
+      return component
+    end
+  end
+  return {
+    icon = ("[%s] "):format(status),
+    highlight = done and "RenderMarkdownChecked" or "RenderMarkdownUnchecked",
+    scope_highlight = done and "@markup.strikethrough" or nil,
+  }
 end
 
 ---@return table single pending-spinner virt line

@@ -98,8 +98,10 @@ local function toggle_item(item)
     vim.cmd("silent write")
   end)
   -- reflect it in the picker row (display segs 3/4 = checkbox, text)
-  local done = toggled:match("^%s*.-%[[^ ]%]") ~= nil
-  item.display[3] = { base.checkbox(done), done and "Comment" or "Special" }
+  local state = toggled:match("^%s*.-%[([^%]])%]") or " "
+  local done = state == "x" or state == "X"
+  local box = base.checkbox(state)
+  item.display[3] = { box.icon, box.highlight }
   item.display[4][2] = done and "Comment" or "Normal"
   return done
 end
@@ -145,6 +147,7 @@ function M.pick(spec, ctx, result)
   elseif data.kind == "task" then
     for _, group in ipairs(data.groups) do
       for _, task in ipairs(group.items) do
+        local box = base.checkbox(task.status)
         items[#items + 1] = {
           file = task.path,
           text = note_name(task.path) .. " " .. task.text,
@@ -152,7 +155,7 @@ function M.pick(spec, ctx, result)
           display = {
             { note_name(task.path), "Directory" },
             { "  " },
-            { base.checkbox(task.completed), task.completed and "Comment" or "Special" },
+            { box.icon, box.highlight },
             { task.text, task.completed and "Comment" or "Normal" },
           },
         }

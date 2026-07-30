@@ -622,6 +622,40 @@ check(dv_engine.toggle_task_line("3. [/] parcial") == "3. [ ] parcial", "custom 
 check(dv_engine.toggle_task_line("plain prose line") == nil, "no checkbox -> nil")
 check(dv_engine.toggle_task_line("- [ ] outer [x] inner") == "- [x] outer [x] inner", "first checkbox wins")
 
+---------------------------------------------------------------- checkboxes
+group = "checkbox"
+local base = require("obsidian-query.render")
+local cfg_mod = require("obsidian-query.config")
+cfg_mod.set({ icons = "nerd" })
+-- stub render-markdown: it isn't on the rtp here, and this is exactly the shape
+-- obsidian-query reads out of it (state.get(buf).checkbox)
+package.loaded["render-markdown.state"] = {
+  get = function()
+    return {
+      bullet = { icons = { "B" } },
+      checkbox = {
+        enabled = true,
+        unchecked = { icon = "U ", highlight = "Unch" },
+        checked = { icon = "C ", highlight = "Ch", scope_highlight = "Strike" },
+        custom = { todo = { raw = "[-]", rendered = "T", highlight = "Todo" } },
+      },
+    }
+  end,
+}
+local open, done, todo = base.checkbox(" "), base.checkbox("x"), base.checkbox("-")
+check(open.icon == "U " and open.highlight == "Unch", "unchecked comes from render-markdown")
+check(done.icon == "C " and done.scope_highlight == "Strike", "checked keeps its scope highlight")
+check(todo.icon == "T " and todo.highlight == "Todo", "custom raw state -> rendered glyph, padded")
+check(base.checkbox("X").icon == "C ", "uppercase X is checked")
+local odd = base.checkbox("~")
+check(odd.icon == "B ~ " and odd.highlight == "RenderMarkdownBullet", "unconfigured state -> bullet + raw char")
+package.loaded["render-markdown.state"] = nil
+check(base.checkbox("-").icon == "[-] ", "no render-markdown -> literal state")
+cfg_mod.set({ icons = "ascii" })
+check(base.checkbox("-").icon == "[-] ", "ascii keeps the raw state")
+check(base.checkbox("x").highlight == "RenderMarkdownChecked", "ascii still highlights done tasks")
+cfg_mod.set({ icons = "auto" })
+
 ---------------------------------------------------------------- picker title
 group = "title"
 local fres = run('TABLE file.name FROM "Journal"')

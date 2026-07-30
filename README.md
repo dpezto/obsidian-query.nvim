@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/dpezto/obsidian-query.nvim/actions/workflows/test.yml"><img alt="CI" src="https://github.com/dpezto/obsidian-query.nvim/actions/workflows/test.yml/badge.svg"></a>
+  <a href="https://github.com/dpezto/obsidian-query.nvim/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/dpezto/obsidian-query.nvim/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Neovim 0.11+" src="https://img.shields.io/badge/Neovim-0.11%2B-57A143?logo=neovim&logoColor=white">
   <img alt="Made with Lua" src="https://img.shields.io/badge/Lua-100%25-2C2D72?logo=lua&logoColor=white">
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue">

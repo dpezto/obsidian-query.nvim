@@ -50,9 +50,12 @@ JavaScript and need Obsidian's runtime.
     require("obsidian").setup({ cache = { enabled = true } })
 <
 - render-markdown.nvim — its custom-handler API puts results on screen
-- snacks.nvim — result pickers
+- a picker plugin, any one of: snacks.nvim, telescope.nvim, fzf-lua
+  (recommended — without one, results open via |vim.ui.select()| with no
+  preview and no <C-t> task toggle)
 - ripgrep — supplemental index (already required by obsidian.nvim)
-- a Nerd Font — key glyphs in result hints, task checkboxes
+- a Nerd Font — optional; set `icons = "ascii"` (or
+  `vim.g.have_nerd_font = false`) for plain-text key hints and checkboxes
 - blink.cmp — optional, for completion (|obsidian-query-completion|)
 
 Verify with `:checkhealth obsidian-query` (|obsidian-query-health|).
@@ -79,6 +82,18 @@ With lazy.nvim: >lua
     end,
   },
 <
+Fence label icons: render-markdown resolves them through your icon
+provider. With nvim-web-devicons the plugin registers `dataview`/`query`
+icons automatically on setup(). mini.icons has no registration API
+(config-only by design) — add them to your own mini.icons setup: >lua
+
+  require("mini.icons").setup({
+    filetype = {
+      dataview = { glyph = "󰆼", hl = "MiniIconsBlue" },
+      query = { glyph = "󰍉", hl = "MiniIconsPurple" },
+    },
+  })
+<
 `handler` is shorthand for `{ extends = true, parse = ... }`; the longhand
 form composes with your own handlers: >lua
 
@@ -104,9 +119,11 @@ Defaults: >lua
 
   require("obsidian-query").setup({
     picker = {
+      backend = "auto",
       style = "file",
     },
-    max_inline_rows = nil,
+    icons = "auto",
+    max_inline_rows = 12,
   })
 <
 Calling setup() is only needed to change a default (lazy.nvim's `opts = {}`
@@ -114,24 +131,52 @@ calls it for you). Besides storing options it creates the autocmds that set
 buffer-local keymaps on note enter and follow workspace switches
 (|obsidian-query-multi-vault|).
 
+                                          *obsidian-query.picker.backend*
+picker.backend ~
+                                                type: `string`, default: `"auto"`
+
+  Which picker plugin opens result sets:
+
+  "auto"       first available of snacks > telescope > fzf-lua, falling
+               back to |vim.ui.select()|.
+  "snacks"     richest: preview + live <C-t> row update.
+  "telescope"  quickfix-style preview, full <C-t> toggling.
+  "fzf-lua"    jumps and toggles; no preview, toggled rows refresh on the
+               next open.
+  "select"     |vim.ui.select()| — jump only.
+
+  A pinned backend that is not installed degrades to "select" (and
+  `:checkhealth obsidian-query` says so).
+
                                             *obsidian-query.picker.style*
 picker.style ~
                                                 type: `string`, default: `"file"`
 
   How picker rows are formatted:
 
-  "file"    snacks' stock file formatter — paths + icons.
+  "file"    plain file rows — snacks' stock formatter, paths elsewhere.
   "rich"    query-shaped rows — dates for calendar days, table cells for
             TABLE, source note + task text for TASK.
 
+                                                  *obsidian-query.icons*
+icons ~
+                                                type: `string`, default: `"auto"`
+
+  Glyphs used in result hints and task checkboxes:
+
+  "auto"    nerd-font glyphs unless `vim.g.have_nerd_font == false`.
+  "nerd"    always glyphs (󰌑, 󰄲, 󰄱, ...).
+  "ascii"   plain text: `<CR>`, `[x]`, `[ ]` — no Nerd Font needed.
+
                                           *obsidian-query.max_inline_rows*
 max_inline_rows ~
-                                                 type: `integer?`, default: `nil`
+                                                  type: `integer?`, default: `12`
 
   Cap on inline-rendered rows/notes/tasks per fence; excess becomes a
-  "+N more — 󰌑 for all" hint line. `nil` renders everything. With
-  unlimited tall results, `j`/`k` jump across the whole |virt_lines|
-  block; scroll with |CTRL-E|/|CTRL-Y| or use the <CR> picker.
+  "+N more — 󰌑 for all" hint line (the <CR> picker always holds the full
+  set). `nil` renders everything — beware: the cursor can't enter
+  |virt_lines|, so `j`/`k` jump across the whole block; scroll tall
+  results with |CTRL-E|/|CTRL-Y|.
 
 ==============================================================================
 5. KEYMAPS                                        *obsidian-query-keymaps*
@@ -155,7 +200,9 @@ Inside a TASK picker:
 
   <C-t>         Toggle the checkbox of the selected task in its file
                 (`[ ]` <-> `[x]`; any other state resets to open). The
-                row's glyph and the preview update live.
+                row's glyph and the preview update live (snacks/telescope;
+                fzf-lua refreshes on the next open). Unavailable on the
+                vim.ui.select fallback.
 
 ==============================================================================
 6. MULTIPLE VAULTS                            *obsidian-query-multi-vault*
@@ -333,8 +380,8 @@ Open tasks due this week, grouped by note: >
 <
 Recently modified notes in a folder: >
   ```dataview
-  TABLE lang, created AS "Started"
-  FROM "Bitacora"
+  TABLE status, created AS "Started"
+  FROM "Journal"
   WHERE file.mtime >= date(today) - dur(30 days)
   SORT file.name DESC
   LIMIT 10
@@ -342,7 +389,7 @@ Recently modified notes in a folder: >
 <
 Daily-notes activity as a heat-mapped calendar: >
   ```dataview
-  CALENDAR FROM "Bitacora"
+  CALENDAR FROM "Journal"
   ```
 <
 External data from a CSV in the vault: >
@@ -478,6 +525,7 @@ the queries, so what highlights is exactly what parses.
 - render-markdown's render API
 - obsidian.nvim's cache: enabled, ready, and row shape as expected
 - cache vault vs. active workspace mismatch
+- which picker backend resolved (warns on the vim.ui.select fallback)
 
 Run it after updating obsidian.nvim or render-markdown.nvim.
 

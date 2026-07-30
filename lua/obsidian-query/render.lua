@@ -32,7 +32,7 @@ function M.anchored_mark(block, buf, lines)
   }
 end
 
--- Nerd-font key glyphs.
+-- Nerd-font key glyphs; ASCII when the config says no nerd font.
 local KEY_ICONS = {
   ["<Left>"] = " ",
   ["<Right>"] = " ",
@@ -45,11 +45,24 @@ local KEY_ICONS = {
 }
 
 ---Key hint, always trailing-padded: the glyph for known keys, the literal
----`<Key>` for the rest.
+---`<Key>` for the rest (and for everything without a nerd font).
 ---@param lhs string e.g. "<Left>"
 ---@return string
 function M.key(lhs)
+  if not require("obsidian-query.config").nerd_font() then
+    return lhs .. " "
+  end
   return KEY_ICONS[lhs] or (lhs .. " ")
+end
+
+---Task checkbox glyph, trailing-padded.
+---@param done boolean
+---@return string
+function M.checkbox(done)
+  if not require("obsidian-query.config").nerd_font() then
+    return done and "[x] " or "[ ] "
+  end
+  return done and "󰄲 " or "󰄱 "
 end
 
 ---@return table single pending-spinner virt line
@@ -69,23 +82,17 @@ function M.clip(s, w)
   return vim.fn.strcharpart(s, 0, w - 1) .. "…"
 end
 
----Result picker. Items carry `display` (snacks Highlight[]) so results show
----as query rows, not raw file paths; `text` stays the fuzzy-match string.
+---Result picker. Items carry `display` (segment list: { {text, hl?}, ... })
+---so results show as query rows, not raw file paths; `text` stays the
+---fuzzy-match string. Dispatches to the configured backend.
 ---@param title string
----@param items table[]
----@param opts table? extra Snacks.picker config (actions, keys, ...)
+---@param items table[] { file, text, pos?, display }
+---@param opts table? { toggle = fun(item): boolean? } TASK checkbox toggling
 function M.picker(title, items, opts)
   if #items == 0 then
     return
   end
-  local style = require("obsidian-query.config").opts.picker.style
-  Snacks.picker(vim.tbl_deep_extend("force", {
-    title = title,
-    items = items,
-    format = style == "rich" and function(item)
-      return item.display
-    end or "file",
-  }, opts or {}))
+  require("obsidian-query.picker").open(title, items, opts)
 end
 
 ---render-markdown silently drops render calls that arrive while a render is in

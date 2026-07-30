@@ -144,7 +144,7 @@ function M.task_lines(data)
 				break
 			end
 			shown = shown + 1
-			local box = task.completed and "󰄲 " or "󰄱 "
+			local box = base.checkbox(task.completed)
 			local hl = task.completed and "RenderMarkdownChecked" or "RenderMarkdownUnchecked"
 			lines[#lines + 1] = {
 				BAR,

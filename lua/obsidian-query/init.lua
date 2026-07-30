@@ -11,6 +11,17 @@ local cache = {}
 ---@param opts obsidian-query.Opts?
 function M.setup(opts)
   require("obsidian-query.config").set(opts)
+  -- Fence label icons: render-markdown resolves them via mini.icons or
+  -- nvim-web-devicons. devicons has a public registration API — use it.
+  -- mini.icons is config-only by design; the README documents the snippet.
+  local has_devicons, devicons = pcall(require, "nvim-web-devicons")
+  if has_devicons and devicons.set_icon and devicons.set_icon_by_filetype then
+    devicons.set_icon({
+      dataview = { icon = "󰆼", color = "#6d8086", cterm_color = "66", name = "Dataview" },
+      obsidian_query = { icon = "󰍉", color = "#a074c4", cterm_color = "140", name = "ObsidianQuery" },
+    })
+    devicons.set_icon_by_filetype({ dataview = "dataview", query = "obsidian_query" })
+  end
   local group = vim.api.nvim_create_augroup("obsidian_query_keymaps", { clear = true })
   -- obsidian.nvim detects which workspace a buffer belongs to but never
   -- switches to it, and its cache only serves the ACTIVE workspace — so a

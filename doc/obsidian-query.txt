@@ -8,15 +8,22 @@ CONTENTS                                                *obsidian-query*
 
   1. Introduction ........................ |obsidian-query-introduction|
   2. Requirements ........................ |obsidian-query-requirements|
-  3. Setup ............................... |obsidian-query-setup|
+  3. Installation ........................ |obsidian-query-installation|
   4. Configuration ....................... |obsidian-query-configuration|
   5. Keymaps ............................. |obsidian-query-keymaps|
-  6. Search fences ....................... |obsidian-query-search|
-  7. Dataview fences ..................... |obsidian-query-dataview|
-  8. Calendar ............................ |obsidian-query-calendar|
-  9. Inline queries ...................... |obsidian-query-inline|
- 10. Completion .......................... |obsidian-query-completion|
- 11. Highlight groups .................... |obsidian-query-highlights|
+  6. Multiple vaults ..................... |obsidian-query-multi-vault|
+  7. Search fences ....................... |obsidian-query-search|
+  8. Dataview fences ..................... |obsidian-query-dataview|
+  9. Calendar ............................ |obsidian-query-calendar|
+ 10. Inline queries ...................... |obsidian-query-inline|
+ 11. Completion .......................... |obsidian-query-completion|
+ 12. Recipes ............................. |obsidian-query-recipes|
+ 13. API ................................. |obsidian-query-api|
+ 14. Highlight groups .................... |obsidian-query-highlights|
+ 15. How it works ........................ |obsidian-query-internals|
+ 16. Limitations ......................... |obsidian-query-limitations|
+ 17. Health .............................. |obsidian-query-health|
+ 18. Credits ............................. |obsidian-query-credits|
 
 ==============================================================================
 1. INTRODUCTION                              *obsidian-query-introduction*
@@ -28,46 +35,67 @@ against the vault's markdown files — Obsidian never runs. Results appear in
 normal mode and collapse back to the raw fence while editing; files on disk
 only ever contain the query.
 
+Modeled on https://github.com/blacksmithgu/obsidian-dataview (DQL) and
+Obsidian's built-in Search plugin (`query` fences).
+
+Not supported: ```dataviewjs fences and `$=` inline JS — those are
+JavaScript and need Obsidian's runtime.
+
 ==============================================================================
 2. REQUIREMENTS                              *obsidian-query-requirements*
 
 - Neovim >= 0.11
-- obsidian.nvim (community fork) with the cache enabled: >lua
+- obsidian.nvim (community fork) with the cache enabled — the dataview
+  engine reads its metadata index: >lua
     require("obsidian").setup({ cache = { enabled = true } })
 <
-- render-markdown.nvim (rendering)
-- snacks.nvim (pickers)
-- ripgrep
-- a Nerd Font (key glyphs in result hints)
+- render-markdown.nvim — its custom-handler API puts results on screen
+- snacks.nvim — result pickers
+- ripgrep — supplemental index (already required by obsidian.nvim)
+- a Nerd Font — key glyphs in result hints, task checkboxes
+- blink.cmp — optional, for completion (|obsidian-query-completion|)
 
-Verify with `:checkhealth obsidian-query`.
-
-Multiple vaults: results follow the buffer. Opening a note from another
-vault switches obsidian.nvim's active workspace to it and re-renders, so
-queries never show a different vault's results.
+Verify with `:checkhealth obsidian-query` (|obsidian-query-health|).
 
 ==============================================================================
-3. SETUP                                            *obsidian-query-setup*
+3. INSTALLATION                              *obsidian-query-installation*
 
-Wire the render-markdown handlers — this is what puts results on screen: >lua
+With lazy.nvim: >lua
 
-  require("render-markdown").setup({
-    custom_handlers = {
-      markdown = {
-        extends = true,
-        parse = function(ctx)
-          return require("obsidian-query").parse(ctx)
-        end,
-      },
-      -- optional: inline `= expr` queries in prose
-      markdown_inline = {
-        extends = true,
-        parse = function(ctx)
-          return require("obsidian-query.inline").parse(ctx)
-        end,
-      },
+  {
+    "dpezto/obsidian-query.nvim",
+    ft = "markdown",
+  },
+  {
+    "MeanderingProgrammer/render-markdown.nvim",
+    -- function form: a require() in a plain opts table would run when the
+    -- spec file is sourced and load obsidian-query at startup
+    opts = function(_, opts)
+      opts.custom_handlers = {
+        markdown = require("obsidian-query").handler,
+        -- optional: inline `= expr` queries in prose
+        markdown_inline = require("obsidian-query.inline").handler,
+      }
+    end,
+  },
+<
+`handler` is shorthand for `{ extends = true, parse = ... }`; the longhand
+form composes with your own handlers: >lua
+
+  custom_handlers = {
+    markdown = {
+      extends = true,  -- keep render-markdown's builtin handlers running
+      parse = function(ctx)
+        return require("obsidian-query").parse(ctx)
+      end,
     },
-  })
+    markdown_inline = {
+      extends = true,
+      parse = function(ctx)
+        return require("obsidian-query.inline").parse(ctx)
+      end,
+    },
+  }
 <
 ==============================================================================
 4. CONFIGURATION                            *obsidian-query-configuration*
@@ -76,19 +104,42 @@ Defaults: >lua
 
   require("obsidian-query").setup({
     picker = {
-      -- "file": snacks' stock file formatter (paths + icons)
-      -- "rich": query-shaped rows (dates, table cells, source note + task)
       style = "file",
     },
-    -- Cap inline-rendered rows; excess becomes a "+N more" line.
-    -- nil = unlimited.
     max_inline_rows = nil,
   })
 <
+Calling setup() is only needed to change a default (lazy.nvim's `opts = {}`
+calls it for you). Besides storing options it creates the autocmds that set
+buffer-local keymaps on note enter and follow workspace switches
+(|obsidian-query-multi-vault|).
+
+                                            *obsidian-query.picker.style*
+picker.style ~
+                                                type: `string`, default: `"file"`
+
+  How picker rows are formatted:
+
+  "file"    snacks' stock file formatter — paths + icons.
+  "rich"    query-shaped rows — dates for calendar days, table cells for
+            TABLE, source note + task text for TASK.
+
+                                          *obsidian-query.max_inline_rows*
+max_inline_rows ~
+                                                 type: `integer?`, default: `nil`
+
+  Cap on inline-rendered rows/notes/tasks per fence; excess becomes a
+  "+N more — 󰌑 for all" hint line. `nil` renders everything. With
+  unlimited tall results, `j`/`k` jump across the whole |virt_lines|
+  block; scroll with |CTRL-E|/|CTRL-Y| or use the <CR> picker.
+
 ==============================================================================
 5. KEYMAPS                                        *obsidian-query-keymaps*
 
-Buffer-local to vault notes, set automatically on ObsidianNoteEnter:
+Buffer-local to vault notes, set automatically on obsidian.nvim's
+`ObsidianNoteEnter` event. Every mapping falls through to its normal
+behavior when the cursor is not on a query. There is currently no opt-out
+or remap option.
 
   <CR>          On a fence: open results in a picker, titled by query kind
                 and source (`TABLE · "Coding" (24)`). Elsewhere:
@@ -102,10 +153,26 @@ Buffer-local to vault notes, set automatically on ObsidianNoteEnter:
 
 Inside a TASK picker:
 
-  <C-t>         Toggle the checkbox of the selected task in its file.
+  <C-t>         Toggle the checkbox of the selected task in its file
+                (`[ ]` <-> `[x]`; any other state resets to open). The
+                row's glyph and the preview update live.
 
 ==============================================================================
-6. SEARCH FENCES                                   *obsidian-query-search*
+6. MULTIPLE VAULTS                            *obsidian-query-multi-vault*
+
+Results always follow the buffer, not the globally active workspace: each
+buffer's queries run against the vault derived from its own path
+(|obsidian-query.buf_root()|).
+
+Opening a note from another vault switches obsidian.nvim's active
+workspace to it, re-runs obsidian.nvim's cache setup for the new vault
+(obsidian.nvim only wires its cache once at startup — without this, every
+query in the new vault would come back empty), marks all cached query
+results stale, and re-renders visible markdown buffers. Queries never show
+a different vault's results.
+
+==============================================================================
+7. SEARCH FENCES                                   *obsidian-query-search*
 
 The full core-Search language inside ```query fences: terms, "phrases",
 /regex/, implicit AND, OR, - negation, (...) grouping, and the operators
@@ -114,58 +181,131 @@ The full core-Search language inside ```query fences: terms, "phrases",
   task: task-todo: task-done: match-case:() ignore-case:()
   [property] [property:value]
 
-Matching is smart-case. Every vault file is matchable by path:/file:/bare
-filename — attachments included; content operators only ever hit notes.
-Matched lines render under each note.
+Matching is smart-case, like Obsidian: lowercase terms match
+case-insensitively, any uppercase makes the term case-sensitive.
+
+Every vault file is matchable by path:/file:/bare filename — attachments
+included; content operators only ever hit notes. Matched lines render
+under each note, and the <CR> picker jumps to the exact matched line.
+
+tag: matches frontmatter and inline tags, nested: `tag:#a` matches `#a/b`.
+
+Regular expressions are translated to Vim regex: alternation, {n,m},
+character classes, \b, non-capturing groups and all four lookarounds work.
+Patterns with in-pattern backreferences, named groups or inline flags are
+rejected with a one-time warning (the pattern matches nothing).
 
 ==============================================================================
-7. DATAVIEW FENCES                               *obsidian-query-dataview*
+8. DATAVIEW FENCES                               *obsidian-query-dataview*
 
-DQL inside ```dataview fences:
+DQL inside ```dataview fences.
 
-- Headers: TABLE [WITHOUT ID], LIST [WITHOUT ID], TASK, CALENDAR
-- Sources: #tag (nested), "folder", [[note]] (inlinks),
-  outgoing([[note]]), csv("file.csv"), combined with AND/OR/-
-- Commands: WHERE, SORT (multi-key), GROUP BY, FLATTEN, LIMIT — executed
-  in written order, duplicates allowed
-- Expressions: typed arithmetic (date - date -> duration, date +
-  dur(1 month) shifts calendar months with day clamping), Dataview null
-  semantics, lambdas `(x) => ...`, list and [[link]] literals, contextual
-  date(today|sow|som|...) / dur(30 days) literals
-- Implicit fields: file.name/folder/path/link/size/ctime/cday/mtime/mday/
-  day/tags/etags/aliases/tasks/inlinks/outlinks/frontmatter/starred,
-  frontmatter keys (original, lowercase, kebab-case), inline Key:: value
-  fields
-- ~60 functions from the Dataview function library
+Headers ~
 
-Not supported: ```dataviewjs fences and `$=` inline JS (need a JS runtime).
+  TABLE [WITHOUT ID] expr [AS "name"], ...
+  LIST [WITHOUT ID] [expr]
+  TASK
+  CALENDAR [date-expr]
+
+Sources ~
+
+  #tag           notes tagged (nested: #a matches #a/b)
+  "folder"       notes under a folder
+  [[note]]       notes linking TO note (inlinks)
+  outgoing([[note]])
+                 notes note links to
+  csv("f.csv")   rows of a CSV file in the vault
+  combined with AND / OR / - and (...) grouping
+
+Commands ~
+
+  WHERE, SORT (multi-key, ASC/DESC), GROUP BY, FLATTEN, LIMIT — executed
+  in written order, duplicates allowed, matching Dataview. After GROUP BY,
+  rows live under `rows` and the group key under `key`.
+
+Expressions ~
+
+  Arithmetic with typed values: `date - date` -> duration, `date +
+  dur(1 month)` shifts the calendar month with day clamping. Comparisons
+  use Dataview's null semantics. AND / OR / !, lambdas `(x) => ...`, list
+  literals, [[link]] literals, contextual `date(2026-01-01)` /
+  `date(today|sow|som|...)` / `dur(30 days)` literals.
+
+Implicit fields ~
+
+  file.name file.folder file.path file.link file.size file.ctime
+  file.cday file.mtime file.mday file.day file.tags file.etags
+  file.aliases file.tasks file.lists file.inlinks file.outlinks
+  file.frontmatter file.starred (bookmarks)
+
+  Frontmatter keys are available under their original, lowercase, and
+  kebab-case names. Inline `Key:: value` fields are indexed vault-wide;
+  repeated keys merge into arrays.
+
+Tasks ~
+
+  text status checked completed fullyCompleted line section children
+  parent, plus `[due:: ...]`-style bracket fields and the Tasks-plugin
+  emoji dates 📅 (due) ✅ (completion) ➕ (created) ⏳ (scheduled)
+  🛫 (start). Nesting is indent-based.
+
+Functions ~
+
+  62 functions from the Dataview library (see
+  `lua/obsidian-query/dataview/functions.lua` for the registry):
+
+  constructors  array date dur elink embed link list number object string
+                typeof
+  numeric       average ceil floor max min round sum trunc
+  strings       containsword endswith lower padleft padright replace
+                split startswith substring trim truncate upper
+  regex         regexmatch regexreplace regextest
+  lists         all any contains econtains filter first flat join last
+                length map maxby minby none nonnull reverse slice sort
+                unique
+  dates/format  currencyformat dateformat durationformat localtime
+                striptime
+  misc          choice default extract hash meta
 
 ==============================================================================
-8. CALENDAR                                      *obsidian-query-calendar*
+9. CALENDAR                                      *obsidian-query-calendar*
 
-`CALENDAR <date-expr>` renders one month at a time, opening on the current
-month. Days with notes are heat-mapped by note count across the shown
-month; only the stretch of the palette that clears a contrast floor
-against `Normal`'s background is used, rebuilt on |ColorScheme|. A
-grid-wide legend maps colours back to counts. Today is drawn reversed.
-Navigation: see |obsidian-query-keymaps|.
+`CALENDAR [date-expr]` renders one month at a time, opening on the current
+month; `date-expr` defaults to `file.day`. Days with notes are heat-mapped
+by note count across the shown month, on a continuous ramp interpolated
+from the palette anchors (a month whose days all hold the same count is
+drawn in the first colour).
+
+Only the stretch of the palette that clears a contrast floor against the
+colorscheme's `Normal` background is used — a dark background loses the
+near-black end, a light one the near-white end — and the ramp is rebuilt
+on |ColorScheme|, so the busiest days stay readable either way.
+
+A grid-wide legend under the month (`1 ██████ 6`) maps colours back to
+counts; it disappears when every day holds the same count. Today keeps its
+count colour, drawn reversed. Override with |obsidian-query-highlights|.
+
+Navigation: |obsidian-query-keymaps| — <Left>/<Right>/<Home>, the header
+`‹`/`›` arrows, the month label, and clicking a day for its notes.
 
 ==============================================================================
-9. INLINE QUERIES                                  *obsidian-query-inline*
+10. INLINE QUERIES                                 *obsidian-query-inline*
 
-With the markdown_inline handler wired, `= expr` code spans in prose
-render their value as inline virtual text: >
+With the markdown_inline handler wired (|obsidian-query-installation|),
+`= expr` code spans in prose render their value as inline virtual text: >
 
   This note has `= length(this.file.tasks)` tasks.
 <
-The raw span reappears on the cursor row; errors and null render nothing.
+`this` is the page object of the containing note. The raw span reappears
+on the cursor row for editing; errors and null render nothing.
 
 ==============================================================================
-10. COMPLETION                                 *obsidian-query-completion*
+11. COMPLETION                                 *obsidian-query-completion*
 
-Optional blink.cmp source with context-aware operators, DQL keywords and
-functions with inline documentation, plus the vault's tags, folders, note
-names and frontmatter properties: >lua
+Optional blink.cmp source with context-aware completions: query operators
+inside ```query fences; DQL keywords, functions (with inline docs) and
+implicit fields inside ```dataview fences; plus the vault's tags, folders,
+note names and frontmatter properties where each is valid: >lua
 
   sources = {
     per_filetype = { markdown = { inherit_defaults = true, "obsidian_query" } },
@@ -175,7 +315,111 @@ names and frontmatter properties: >lua
   }
 <
 ==============================================================================
-11. HIGHLIGHT GROUPS                           *obsidian-query-highlights*
+12. RECIPES                                       *obsidian-query-recipes*
+
+A reading list from frontmatter: >
+  ```dataview
+  TABLE author, rating, status, started
+  FROM #book
+  SORT rating DESC, file.name ASC
+  ```
+<
+Open tasks due this week, grouped by note: >
+  ```dataview
+  TASK FROM "Projects"
+  WHERE !completed AND due AND due <= date(eow)
+  GROUP BY file.link
+  ```
+<
+Recently modified notes in a folder: >
+  ```dataview
+  TABLE lang, created AS "Started"
+  FROM "Bitacora"
+  WHERE file.mtime >= date(today) - dur(30 days)
+  SORT file.name DESC
+  LIMIT 10
+  ```
+<
+Daily-notes activity as a heat-mapped calendar: >
+  ```dataview
+  CALENDAR FROM "Bitacora"
+  ```
+<
+External data from a CSV in the vault: >
+  ```dataview
+  TABLE score, when FROM csv("measurements.csv") SORT score DESC
+  ```
+<
+Full-text search with operators: >
+  ```query
+  path:Areas/Work tag:#project "kickoff meeting"
+  ```
+<
+Inline, mid-sentence: >
+  This note has `= length(this.file.tasks)` tasks.
+<
+==============================================================================
+13. API                                               *obsidian-query-api*
+
+require("obsidian-query") ~
+
+setup({opts})                                       *obsidian-query.setup()*
+  Store options (|obsidian-query-configuration|) and create the note-enter
+  keymap and workspace-switch autocmds.
+
+parse({ctx})                                        *obsidian-query.parse()*
+  render-markdown custom-handler parse for the `markdown` component.
+  Returns the marks for every query/dataview fence in {ctx}'s range.
+
+handler                                            *obsidian-query.handler*
+  `{ extends = true, parse = parse }` — drop-in value for
+  render-markdown's `custom_handlers.markdown`.
+
+open_picker()                                 *obsidian-query.open_picker()*
+  Open the result picker for the fence under the cursor (what <CR> does).
+
+click()                                             *obsidian-query.click()*
+  Mouse entry point: resolve which virtual line/column of which rendered
+  block was clicked and let the owning engine handle it. Returns whether
+  the click was handled (false lets it fall through).
+
+shift({delta})                                      *obsidian-query.shift()*
+  <Left>/<Right>/<Home> handler: shift the fence's view — the calendar
+  month — by {delta}; nil means "back to the current month". Returns
+  whether the key was handled.
+
+cursor_in_query()                         *obsidian-query.cursor_in_query()*
+  Whether the cursor is on a query/dataview fence.
+
+buf_root({buf})                                  *obsidian-query.buf_root()*
+  Workspace root for {buf}, derived from the buffer's own path — NOT the
+  globally active workspace. Returns nil outside any vault.
+
+fence_query()                                *obsidian-query.fence_query()*
+  The shared treesitter fence query (also consumed by the highlighter).
+
+require("obsidian-query.inline") ~
+
+inline.parse({ctx})                          *obsidian-query.inline.parse()*
+  render-markdown custom-handler parse for the `markdown_inline`
+  component (inline `= expr` spans).
+
+inline.handler                              *obsidian-query.inline.handler*
+  `{ extends = true, parse = parse }` — drop-in value for
+  `custom_handlers.markdown_inline`.
+
+inline.invalidate()                     *obsidian-query.inline.invalidate()*
+  Drop the inline engine's per-vault index cache.
+
+require("obsidian-query.dataview") ~
+
+dataview.toggle_task_line({line})   *obsidian-query.dataview.toggle_task_line()*
+  Flip a checkbox in {line}: `[ ]` <-> `[x]`; any other non-blank state
+  resets to open. Returns the toggled line, or nil when {line} holds no
+  checkbox.
+
+==============================================================================
+14. HIGHLIGHT GROUPS                           *obsidian-query-highlights*
 
   ObsidianQueryHeat1..24    Calendar heat scale, least to most notes.
                             Defined with `default`, so a colorscheme or
@@ -185,5 +429,66 @@ names and frontmatter properties: >lua
 
 Fence bodies are highlighted by the query engines' own lexers via standard
 groups (Keyword, Function, String, Number, ...).
+
+==============================================================================
+15. HOW IT WORKS                                *obsidian-query-internals*
+
+Parsing — a treesitter query finds query/dataview fences; each engine
+parses its body with a recursive-descent parser. Evaluation is total:
+malformed input renders an error line (fences) or nothing (inline), never
+a Lua error.
+
+Evaluation — the search engine reads candidate notes directly. The
+dataview engine builds page objects from obsidian.nvim's mtime-checked
+cache plus its own ripgrep-backed supplemental index (inline fields,
+headers, backlinks, bookmarks). Queries run async; a pending fence shows a
+dimmed `…` placeholder.
+
+Caching — results are memoized per query + vault, invalidated when any
+vault note is written or entered and on workspace switch.
+
+Rendering — results are |virt_lines| extmarks drawn through
+render-markdown's custom-handler API, anchored above the line after the
+fence to cooperate with render-markdown's fence concealing. Re-renders use
+an exponential backoff (150ms..2.4s, 5 tries) that survives
+render-markdown's debounce window.
+
+Highlighting — fence bodies are coloured by the same lexers that execute
+the queries, so what highlights is exactly what parses.
+
+==============================================================================
+16. LIMITATIONS                               *obsidian-query-limitations*
+
+- No ```dataviewjs and no `$=` inline JS (JavaScript, needs Obsidian).
+- Array indexing is 1-based (Lua convention; Dataview's is 0-based).
+- Dates are naive local time — no timezones or millisecond precision.
+- Plain items in `file.lists` carry no children/parent nesting (tasks do).
+- Regex with in-pattern backreferences, named groups or inline flags is
+  rejected (one-time warning; the pattern matches nothing).
+- Results are virtual lines: the cursor cannot enter them — use the <CR>
+  picker, where <C-t> toggles TASK checkboxes.
+
+==============================================================================
+17. HEALTH                                         *obsidian-query-health*
+
+`:checkhealth obsidian-query` probes every external coupling:
+
+- ripgrep on $PATH
+- the markdown treesitter parser
+- render-markdown's render API
+- obsidian.nvim's cache: enabled, ready, and row shape as expected
+- cache vault vs. active workspace mismatch
+
+Run it after updating obsidian.nvim or render-markdown.nvim.
+
+==============================================================================
+18. CREDITS                                       *obsidian-query-credits*
+
+- blacksmithgu/obsidian-dataview — the Dataview plugin this re-implements,
+  and the reference for DQL semantics.
+- Obsidian's core Search plugin — the `query` fence language.
+- obsidian-tasks — the emoji date format.
+- obsidian.nvim, render-markdown.nvim, snacks.nvim — the stack this plugin
+  builds on.
 
 vim:tw=78:ts=8:noet:ft=help:norl:

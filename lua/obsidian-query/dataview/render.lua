@@ -144,13 +144,12 @@ function M.task_lines(data)
 				break
 			end
 			shown = shown + 1
-			local box = base.checkbox(task.completed)
-			local hl = task.completed and "RenderMarkdownChecked" or "RenderMarkdownUnchecked"
+			local box = base.checkbox(task.status)
 			lines[#lines + 1] = {
 				BAR,
 				{ string.rep("  ", math.min(task.indent and math.floor(task.indent / 2) or 0, 4) + 1) },
-				{ box, hl },
-				{ task.text, task.completed and "@markup.strikethrough" or "RenderMarkdownTableRow" },
+				{ box.icon, box.highlight },
+				{ task.text, box.scope_highlight or "RenderMarkdownTableRow" },
 			}
 		end
 	end

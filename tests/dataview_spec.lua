@@ -32,25 +32,25 @@ end
 local NOW = value.date(ts(2026, 7, 28), "datetime")
 
 local INDEX = {
-  [ROOT .. "/Bitacora/2026-07-01.md"] = {
+  [ROOT .. "/Journal/2026-07-01.md"] = {
     mtime = ts(2026, 7, 1),
     size = 100,
-    aliases = { "MTS day one" },
-    tags = { "bitácora", "mts/setup" },
-    properties = { lang = "es", priority = 3, due = "2026-08-01" },
+    aliases = { "day one" },
+    tags = { "día", "ci/setup" },
+    properties = { status = "open", priority = 3, due = "2026-08-01" },
     links_out = { { target = "2026-07-10", kind = "wiki" } },
     tasks = {
-      { line = 10, indent = 0, state = " ", text = "alinear #lab [due:: 2026-08-15]" },
+      { line = 10, indent = 0, state = " ", text = "align #lab [due:: 2026-08-15]" },
       { line = 11, indent = 2, state = "x", text = "sub uno" },
-      { line = 13, indent = 0, state = "x", text = "calibrar 📅 2026-07-30" },
+      { line = 13, indent = 0, state = "x", text = "calibrate 📅 2026-07-30" },
     },
   },
-  [ROOT .. "/Bitacora/2026-07-10.md"] = {
+  [ROOT .. "/Journal/2026-07-10.md"] = {
     mtime = ts(2026, 7, 10),
     size = 200,
     aliases = {},
-    tags = { "bitácora" },
-    properties = { lang = "en", priority = 1 },
+    tags = { "día" },
+    properties = { status = "done", priority = 1 },
     links_out = {},
     tasks = {},
   },
@@ -59,26 +59,26 @@ local INDEX = {
     size = 300,
     aliases = {},
     tags = { "papers" },
-    properties = { lang = "en", rating = 9.5 },
+    properties = { status = "done", rating = 9.5 },
     links_out = { { target = "2026-07-01", kind = "wiki" } },
     tasks = {},
   },
 }
 local SUP = {
-  [ROOT .. "/Bitacora/2026-07-01.md"] = {
-    fields = { ["session-goal"] = "characterize MTS" },
-    headers = { { line = 5, level = 1, text = "Plan" }, { line = 9, level = 2, text = "Tareas" } },
+  [ROOT .. "/Journal/2026-07-01.md"] = {
+    fields = { ["session-goal"] = "publish notes" },
+    headers = { { line = 5, level = 1, text = "Plan" }, { line = 9, level = 2, text = "Tasks" } },
     lists = {
       { line = 6, indent = 0, text = "idea suelta" },
-      { line = 10, indent = 0, text = "[ ] alinear #lab [due:: 2026-08-15]" },
+      { line = 10, indent = 0, text = "[ ] align #lab [due:: 2026-08-15]" },
       { line = 11, indent = 2, text = "[x] sub uno" },
-      { line = 13, indent = 0, text = "[x] calibrar 📅 2026-07-30" },
+      { line = 13, indent = 0, text = "[x] calibrate 📅 2026-07-30" },
     },
   },
 }
 local INLINKS = {
-  [ROOT .. "/Bitacora/2026-07-10.md"] = { ROOT .. "/Bitacora/2026-07-01.md" },
-  [ROOT .. "/Bitacora/2026-07-01.md"] = { ROOT .. "/Papers/reading.md" },
+  [ROOT .. "/Journal/2026-07-10.md"] = { ROOT .. "/Journal/2026-07-01.md" },
+  [ROOT .. "/Journal/2026-07-01.md"] = { ROOT .. "/Papers/reading.md" },
 }
 local CTX = { index = INDEX, root = ROOT, sup = SUP, inlinks = INLINKS, now = NOW }
 
@@ -104,9 +104,9 @@ check(toks[#toks - 1].type == "NUMBER" and toks[#toks - 1].text == "3.5", "numbe
 
 ---------------------------------------------------------------- parser
 group = "parser"
-local q = assert(parser.parse('TABLE WITHOUT ID lang AS "Lang", priority FROM #bitácora WHERE priority > 1 SORT priority DESC LIMIT 5'))
+local q = assert(parser.parse('TABLE WITHOUT ID status AS "Status", priority FROM #día WHERE priority > 1 SORT priority DESC LIMIT 5'))
 check(q.header.kind == "table" and q.header.without_id, "TABLE WITHOUT ID")
-check(#q.header.fields == 2 and q.header.fields[1].alias == "Lang", "field alias")
+check(#q.header.fields == 2 and q.header.fields[1].alias == "Status", "field alias")
 check(q.commands[1].cmd == "from" and q.commands[1].src.k == "s_tag", "FROM #tag")
 check(q.commands[2].cmd == "where" and q.commands[2].expr.k == "cmp", "WHERE cmp")
 check(q.commands[3].cmd == "sort" and q.commands[3].keys[1].dir == "desc", "SORT DESC")
@@ -121,7 +121,7 @@ check(q.commands[1].expr.k == "call", "lambda parses inside call")
 
 q = assert(parser.parse("TABLE file.day WHERE file.day >= date(2026-07-01) AND file.day <= date(today)"))
 check(q.commands[1].expr.k == "and", "AND keyword in WHERE")
-local q2 = assert(parser.parse('LIST WHERE priority > 1 AND lang = "es" OR done'))
+local q2 = assert(parser.parse('LIST WHERE priority > 1 AND status = "open" OR done'))
 check(q2.commands[1].expr.k == "or" and q2.commands[1].expr.l.k == "and", "AND binds tighter than OR")
 
 local _, err = parser.parse("GARBAGE nope")
@@ -195,21 +195,21 @@ check(F.striptime(env, { value.parse_date("2026-07-01T14:30") }).prec == "date",
 
 ---------------------------------------------------------------- eval
 group = "eval"
-local pg = page_mod.build(ROOT .. "/Bitacora/2026-07-01.md", INDEX[ROOT .. "/Bitacora/2026-07-01.md"], CTX)
+local pg = page_mod.build(ROOT .. "/Journal/2026-07-01.md", INDEX[ROOT .. "/Journal/2026-07-01.md"], CTX)
 local penv = { page = pg, funcs = F, now = NOW }
 local function ev(src)
   local q3 = assert(parser.parse("LIST WHERE " .. src))
   return eval.expr(q3.commands[1].expr, penv)
 end
-check(ev("lang = \"es\"") == true, "fm field access")
+check(ev("status = \"open\"") == true, "fm field access")
 check(ev("priority + 1 = 4") == true, "arith on field")
 check(ev("missing.deep.chain") == value.NULL, "null chain propagates")
 check(ev("file.name") == "2026-07-01", "file.name")
-check(ev("file.folder") == "Bitacora", "file.folder")
+check(ev("file.folder") == "Journal", "file.folder")
 check(value.typeof(ev("due")) == "date", "ISO frontmatter string -> date")
-check(ev("session-goal") == "characterize MTS", "inline field via kebab ident")
-check(ev("contains(file.tags, \"#mts\")") == true, "tag prefix expansion")
-check(ev("contains(file.etags, \"#mts/setup\")") == true, "etags exact")
+check(ev("session-goal") == "publish notes", "inline field via kebab ident")
+check(ev("contains(file.tags, \"#ci\")") == true, "tag prefix expansion")
+check(ev("contains(file.etags, \"#ci/setup\")") == true, "etags exact")
 check(ev("length(file.aliases) = 1") == true, "aliases")
 check(ev("length(file.inlinks) = 1") == true, "inlinks")
 check(ev("length(file.outlinks) = 1") == true, "outlinks")
@@ -226,21 +226,21 @@ check(ev('string(-dur(1 month))') == "-1 month", "negated duration keeps months"
 check(ev("date(today) - due < dur(30 days)") == true, "date literal + dur math")
 -- swizzle
 local rows_v = eval.expr(assert(parser.parse("LIST WHERE file.tasks.text")).commands[1].expr, penv)
-check(value.typeof(rows_v) == "array" and rows_v[1]:find("^alinear #lab") ~= nil, "array swizzle .text")
+check(value.typeof(rows_v) == "array" and rows_v[1]:find("^align #lab") ~= nil, "array swizzle .text")
 
 ---------------------------------------------------------------- page/tasks
 group = "page"
 check(pg.file.tasks[1].fullyCompleted == false, "parent not fullyCompleted (unchecked itself)")
 check(pg.file.tasks[3].fullyCompleted == true, "leaf completed")
 check(#pg.file.tasks[1].children == 1, "indent nesting")
-check(pg.file.tasks[1].section.display == "Tareas", "section from headers index")
+check(pg.file.tasks[1].section.display == "Tasks", "section from headers index")
 check(pg.file.tasks[1].line == 10, "cache line passed through 1-indexed")
 check(value.eq(pg.file.tasks[1].tags, value.array({ "#lab" })), "task tags")
 check(value.typeof(pg.file.tasks[1].due) == "date" and pg.file.tasks[1].due.day == 15, "task [due::] field")
 check(value.typeof(pg.file.tasks[3].due) == "date" and pg.file.tasks[3].due.day == 30, "task emoji due")
 
 group = "this"
-local tctx = vim.tbl_extend("force", {}, CTX, { this_path = ROOT .. "/Bitacora/2026-07-01.md" })
+local tctx = vim.tbl_extend("force", {}, CTX, { this_path = ROOT .. "/Journal/2026-07-01.md" })
 local tres = query.run('LIST WHERE file.name = this.file.name', tctx)
 check(tres.ok and #tres.data.groups[1].items == 1, "this resolves to fence note")
 tres = query.run("LIST FROM [[]]", tctx)
@@ -248,17 +248,17 @@ check(tres.ok and #tres.data.groups[1].items == 1 and tres.data.groups[1].items[
 
 ---------------------------------------------------------------- pipeline
 group = "pipeline"
-local res = run('TABLE lang, priority FROM "Bitacora" SORT priority DESC')
+local res = run('TABLE status, priority FROM "Journal" SORT priority DESC')
 check(res.ok, "table runs: " .. (res.msg or ""))
 check(#res.data.rows == 2, "folder source")
-check(res.data.columns[1] == "File" and res.data.columns[2] == "lang", "columns")
+check(res.data.columns[1] == "File" and res.data.columns[2] == "status", "columns")
 check(res.data.rows[1].cells[2] == 3, "sort desc by priority")
 check(res.data.rows[1].path:find("2026%-07%-01"), "row path")
 
-res = run("LIST FROM #mts")
+res = run("LIST FROM #ci")
 check(res.ok and #res.data.groups[1].items == 1, "nested tag source")
 
-res = run("LIST FROM #bitácora WHERE lang = \"es\"")
+res = run("LIST FROM #día WHERE status = \"open\"")
 check(res.ok and #res.data.groups[1].items == 1, "WHERE filters")
 
 res = run("LIST FROM [[2026-07-10]]")
@@ -268,29 +268,29 @@ check(res.data.groups[1].items[1].path:find("07%-01"), "inlink correct")
 res = run("LIST FROM outgoing([[reading]])")
 check(res.ok and #res.data.groups[1].items == 1 and res.data.groups[1].items[1].path:find("07%-01"), "outgoing()")
 
-res = run('LIST FROM "Bitacora" OR "Papers"')
+res = run('LIST FROM "Journal" OR "Papers"')
 check(res.ok and #res.data.groups[1].items == 3, "source OR")
 
 res = run('LIST FROM -"Papers"')
 check(res.ok and #res.data.groups[1].items == 2, "source negation")
 
-res = run("TABLE length(rows) FROM \"Bitacora\" GROUP BY lang")
+res = run("TABLE length(rows) FROM \"Journal\" GROUP BY status")
 check(res.ok and #res.data.rows == 2, "GROUP BY buckets")
 check(res.data.rows[1].cells[1] == 1, "length(rows)")
 
-res = run('LIST FROM "Bitacora" FLATTEN file.tags AS t WHERE t = "#mts"')
+res = run('LIST FROM "Journal" FLATTEN file.tags AS t WHERE t = "#ci"')
 check(res.ok and #res.data.groups[1].items == 1, "FLATTEN then WHERE (written order)")
 
-res = run('LIST FROM "Bitacora" WHERE priority > 0 LIMIT 1')
+res = run('LIST FROM "Journal" WHERE priority > 0 LIMIT 1')
 check(res.ok and #res.data.groups[1].items == 1, "LIMIT")
 
 -- command order matters: WHERE before vs after GROUP
-local a = run('TABLE length(rows) FROM "Bitacora" WHERE priority > 1 GROUP BY lang')
-local b = run('TABLE length(rows) FROM "Bitacora" GROUP BY lang WHERE length(rows) > 1')
+local a = run('TABLE length(rows) FROM "Journal" WHERE priority > 1 GROUP BY status')
+local b = run('TABLE length(rows) FROM "Journal" GROUP BY status WHERE length(rows) > 1')
 check(a.ok and #a.data.rows == 1, "WHERE then GROUP")
 check(b.ok and #b.data.rows == 0, "GROUP then WHERE on group rows")
 
-res = run("TASK FROM \"Bitacora\" WHERE !completed")
+res = run("TASK FROM \"Journal\" WHERE !completed")
 check(res.ok, "task query runs")
 local tcount = 0
 for _, g in ipairs(res.data.groups) do
@@ -298,7 +298,7 @@ for _, g in ipairs(res.data.groups) do
 end
 check(tcount == 1, "task explosion + WHERE on task fields; got " .. tcount)
 
-res = run("TASK FROM \"Bitacora\" GROUP BY section")
+res = run("TASK FROM \"Journal\" GROUP BY section")
 check(res.ok and #res.data.groups >= 1, "task GROUP BY section")
 
 res = run("CALENDAR")
@@ -574,7 +574,7 @@ local fd = io.open(tmp .. "/data.csv", "w")
 fd:write('name,score,when\n"Smith, J",9.5,2026-07-01\nDoe,7,2026-06-01\n')
 fd:close()
 fd = io.open(tmp .. "/.obsidian/bookmarks.json", "w")
-fd:write('{"items":[{"type":"file","path":"Bitacora/2026-07-01.md"},{"type":"group","items":[{"type":"file","path":"Papers/reading.md"}]}]}')
+fd:write('{"items":[{"type":"file","path":"Journal/2026-07-01.md"},{"type":"group","items":[{"type":"file","path":"Papers/reading.md"}]}]}')
 fd:close()
 
 local cres = query.run('TABLE score, when FROM csv("data.csv") SORT score DESC', { index = {}, root = tmp })
@@ -589,9 +589,9 @@ check(not cerr.ok and cerr.msg:find("not found"), "missing csv reported")
 
 local idx_mod = require("obsidian-query.index")
 local starred = idx_mod._read_starred(tmp)
-check(starred["Bitacora/2026-07-01.md"] and starred["Papers/reading.md"], "bookmarks incl. groups")
+check(starred["Journal/2026-07-01.md"] and starred["Papers/reading.md"], "bookmarks incl. groups")
 local sctx = vim.tbl_extend("force", {}, CTX, { starred = starred })
-local spg = page_mod.build(ROOT .. "/Bitacora/2026-07-01.md", INDEX[ROOT .. "/Bitacora/2026-07-01.md"], sctx)
+local spg = page_mod.build(ROOT .. "/Journal/2026-07-01.md", INDEX[ROOT .. "/Journal/2026-07-01.md"], sctx)
 check(spg.file.starred == true, "file.starred true")
 check(pg.file.starred == false, "file.starred false without bookmarks")
 local dupmd = tmp .. "/dup.md"
@@ -624,11 +624,11 @@ check(dv_engine.toggle_task_line("- [ ] outer [x] inner") == "- [x] outer [x] in
 
 ---------------------------------------------------------------- picker title
 group = "title"
-local fres = run('TABLE file.name FROM "Bitacora"')
+local fres = run('TABLE file.name FROM "Journal"')
 check(fres.ok and fres.data.from and fres.data.from.k == "s_folder", "FROM folder exposed on result")
-check(fres.data.from.folder == "Bitacora", "folder name kept for the title")
-local tagres = run("LIST FROM #bitácora")
-check(tagres.data.from.k == "s_tag" and tagres.data.from.tag == "bitácora", "FROM tag exposed")
+check(fres.data.from.folder == "Journal", "folder name kept for the title")
+local tagres = run("LIST FROM #día")
+check(tagres.data.from.k == "s_tag" and tagres.data.from.tag == "día", "FROM tag exposed")
 check(run("LIST").data.from == nil, "no FROM -> no source on result")
 
 io.write(("all %d checks passed\n"):format(n_ok))

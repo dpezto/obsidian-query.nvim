@@ -19,7 +19,7 @@ local ONE = {
   [":"] = true,
 }
 
--- word chars incl. multibyte UTF-8 (Spanish tags/fields: #bitácora, día)
+-- word chars incl. multibyte UTF-8 (accented tags/fields: #día, café)
 local function is_word(ch)
   return ch ~= "" and (ch:match("[%w_]") ~= nil or ch:byte() >= 0x80)
 end

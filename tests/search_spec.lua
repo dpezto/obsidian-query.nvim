@@ -19,43 +19,43 @@ local function check(cond, msg)
 end
 
 local NOTE = eval.note(
-  "/vault/Bitacora/2026-07-28.md",
-  "Bitacora/2026-07-28.md",
+  "/vault/Journal/2026-07-28.md",
+  "Journal/2026-07-28.md",
   table.concat({
     "---",
     "id: 2026-07-28",
     "tags:",
-    "  - bitácora",
-    "  - mts/setup",
-    "lang: es",
+    "  - día", -- multibyte tag: UTF-8 word chars are part of the contract
+    "  - ci/setup",
+    "status: open",
     "priority: 3",
     "---",
     "",
     "# Plan",
     "",
-    "Medir la potencia total del MTS.",
-    "El bombeo se midió ayer con #laser/rojo.",
+    "Measure the total signal output.",
+    "The backup ran at the café with #build/nightly.",
     "",
-    "## Tareas",
+    "## Tasks",
     "",
-    "- [ ] alinear cavidad",
-    "- [x] calibrar fotodiodo",
-    "1. [ ] revisar Potencia",
+    "- [ ] align sensors",
+    "- [x] calibrate probe",
+    "1. [ ] review Signal",
     "",
     "```query",
-    "#no-es-tag",
+    "#not-a-tag",
     "```",
     "",
-    "- [Enlace](#anchor-tag) no cuenta",
+    "- [Link](#anchor-tag) does not count",
   }, "\n")
 )
 
 ---------------------------------------------------------------- parser
 group = "parser"
-local ast = parser.parse("path:Bitacora tag:#maestría")
+local ast = parser.parse("path:Journal tag:#día")
 check(ast.k == "and" and #ast.kids == 2, "implicit AND")
 check(ast.kids[1].k == "op" and ast.kids[1].name == "path", "path op")
-check(ast.kids[2].k == "op" and ast.kids[2].arg.text == "#maestría", "tag arg")
+check(ast.kids[2].k == "op" and ast.kids[2].arg.text == "#día", "tag arg")
 
 ast = parser.parse('foo OR "bar baz"')
 check(ast.k == "or" and ast.kids[2].k == "phrase" and ast.kids[2].text == "bar baz", "OR + phrase")
@@ -64,13 +64,13 @@ ast = parser.parse("-tag:#x (a OR b)")
 check(ast.kids[1].k == "not" and ast.kids[1].kid.name == "tag", "negated op")
 check(ast.kids[2].k == "or", "parens group")
 
-ast = parser.parse("line:(potencia total)")
+ast = parser.parse("line:(signal output)")
 check(ast.k == "op" and ast.arg.k == "and" and #ast.arg.kids == 2, "line group arg")
 
-ast = parser.parse("/mid[ió]+/i")
+ast = parser.parse("/caf[eé]+/i")
 check(ast.k == "regex" and ast.flags == "i", "regex with flags")
 
-ast = parser.parse("[priority:3] [lang]")
+ast = parser.parse("[priority:3] [status]")
 check(ast.kids[1].k == "prop" and ast.kids[1].value == "3", "prop with value")
 check(ast.kids[2].k == "prop" and ast.kids[2].value == nil, "bare prop")
 
@@ -91,21 +91,21 @@ local function run(q)
   return eval.run(assert(parser.parse(q)), NOTE)
 end
 
-local ok, locs = run("potencia")
+local ok, locs = run("signal")
 check(ok, "smart-case insensitive hit")
 check(#locs == 2, "two matched lines, deduped per line; got " .. #locs)
 
-ok = run("Potencia")
+ok = run("Signal")
 check(ok, "uppercase term still matches its exact-case line")
-ok, locs = run("match-case:(Potencia)")
+ok, locs = run("match-case:(Signal)")
 check(ok and #locs == 1, "match-case restricts")
-ok = run("match-case:(POTENCIA)")
+ok = run("match-case:(SIGNAL)")
 check(not ok, "match-case miss")
-ok = run('"potencia total"')
+ok = run('"signal output"')
 check(ok, "phrase")
-ok = run('"total potencia"')
+ok = run('"output signal"')
 check(not ok, "phrase order matters")
-ok = run("/mid[ió]+/")
+ok = run("/caf[eé]+/")
 check(ok, "regex")
 ok = run("/XYZ\\d+/")
 check(not ok, "regex miss")
@@ -114,46 +114,46 @@ check(ok, "filename fallback for bare terms")
 
 ---------------------------------------------------------------- eval: bool
 group = "bool"
-check(run("potencia bombeo"), "AND")
-check(not run("potencia nadaqueverconesto"), "AND miss")
-check(run("nadaqueverconesto OR bombeo"), "OR")
-check(run("-nadaqueverconesto"), "negation")
-check(not run("-potencia"), "negation miss")
-check(run("(nadaqueverconesto OR bombeo) potencia"), "parens + AND")
+check(run("signal backup"), "AND")
+check(not run("signal zzznothinghere"), "AND miss")
+check(run("zzznothinghere OR backup"), "OR")
+check(run("-zzznothinghere"), "negation")
+check(not run("-signal"), "negation miss")
+check(run("(zzznothinghere OR backup) signal"), "parens + AND")
 
 ---------------------------------------------------------------- eval: ops
 group = "ops"
 check(run("file:2026-07"), "file:")
 check(run("file:.md"), "file: matches the extension")
 check(not run("file:2025"), "file: miss")
-check(run("path:Bitacora"), "path:")
-check(run("content:potencia"), "content:")
+check(run("path:Journal"), "path:")
+check(run("content:signal"), "content:")
 check(not run("content:2026-07-28") or true, "content excludes filename? (fm has id, ok)")
-check(run("tag:#bitácora"), "fm tag")
-check(run("tag:bitácora"), "tag without #")
-check(run("tag:#mts"), "nested tag prefix")
-check(run("tag:#laser"), "inline nested tag")
-check(not run("tag:#no-es-tag"), "tags in code fences ignored")
+check(run("tag:#día"), "fm tag")
+check(run("tag:día"), "tag without #")
+check(run("tag:#ci"), "nested tag prefix")
+check(run("tag:#build"), "inline nested tag")
+check(not run("tag:#not-a-tag"), "tags in code fences ignored")
 check(not run("tag:#anchor-tag"), "markdown-link anchors not tags")
-check(run("tag:(#bitácora OR #nope)"), "tag group OR")
-check(not run("tag:(#bitácora #nope)"), "tag group AND miss")
-check(run("line:(potencia total)"), "line: same line")
-check(not run("line:(potencia bombeo)"), "line: different lines")
-check(run("block:(potencia bombeo)"), "block: same block")
-check(run("section:(alinear calibrar)"), "section: same section")
-check(not run("section:(plan alinear)") or true, "section boundary (heading text counts in own section)")
-check(run("task:(alinear)"), "task:")
-check(run("task-todo:(alinear)"), "task-todo:")
-check(not run("task-done:(alinear)"), "task-done: miss")
-check(run("task-done:(calibrar)"), "task-done:")
-check(run("task-todo:(revisar)"), "numbered task")
+check(run("tag:(#día OR #nope)"), "tag group OR")
+check(not run("tag:(#día #nope)"), "tag group AND miss")
+check(run("line:(signal output)"), "line: same line")
+check(not run("line:(signal backup)"), "line: different lines")
+check(run("block:(signal backup)"), "block: same block")
+check(run("section:(align calibrate)"), "section: same section")
+check(not run("section:(plan align)") or true, "section boundary (heading text counts in own section)")
+check(run("task:(align)"), "task:")
+check(run("task-todo:(align)"), "task-todo:")
+check(not run("task-done:(align)"), "task-done: miss")
+check(run("task-done:(calibrate)"), "task-done:")
+check(run("task-todo:(review)"), "numbered task")
 check(run("task:()"), "any task")
-check(run("[lang:es]"), "prop value")
-check(run("[lang]"), "prop exists")
-check(not run("[lang:en]"), "prop value miss")
+check(run("[status:open]"), "prop value")
+check(run("[status]"), "prop exists")
+check(not run("[status:done]"), "prop value miss")
 check(run("[priority:3]"), "numeric prop")
 check(not run("[missing]"), "prop missing")
-check(run("ignore-case:(POTENCIA)"), "ignore-case:")
+check(run("ignore-case:(SIGNAL)"), "ignore-case:")
 
 ---------------------------------------------------------------- attachments
 -- non-md vault files are matchable by path/filename only (never read)
@@ -166,7 +166,7 @@ local function runa(q)
 end
 check(runa("path:Coding"), "attachment matches path:")
 check(runa("file:img.png"), "attachment matches file: with extension")
-check(not runa("potencia"), "attachment has no content to match")
-check(not runa("line:(potencia)"), "content operator misses attachment")
+check(not runa("signal"), "attachment has no content to match")
+check(not runa("line:(signal)"), "content operator misses attachment")
 
 io.write(("all %d checks passed\n"):format(n_ok))

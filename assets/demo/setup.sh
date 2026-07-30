@@ -14,7 +14,7 @@ set -eu
 ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/obsidian-query-demo"
 VAULT="$ROOT/Demo"
 rm -rf "$VAULT" # drop stale notes from previous runs
-mkdir -p "$VAULT/.obsidian" "$VAULT/Books" "$VAULT/Projects" "$VAULT/Bitacora"
+mkdir -p "$VAULT/.obsidian" "$VAULT/Books" "$VAULT/Projects" "$VAULT/Journal"
 
 # --- dates relative to today, so queries/calendar always have live data ------
 day() { date -v"$1"d +%Y-%m-%d 2>/dev/null || date -d "$1 day" +%Y-%m-%d; }
@@ -76,7 +76,7 @@ tags: [project]
 - [ ] Send draft to reviewers
 EOF
 
-# --- Bitacora: daily notes with varying per-day counts for the CALENDAR heat -
+# --- Journal: daily notes with varying per-day counts for the CALENDAR heat -
 # Walk the last ~5 weeks; the repeating pattern gives days 0-3 notes so the
 # heat map has a real gradient. Extra same-day notes get a suffix after the
 # date (file.day parses the leading yyyy-MM-dd).
@@ -84,9 +84,9 @@ pattern=(1 2 0 1 3 1 0 2 1 1 0 3 1 2 1)
 for i in $(seq 0 34); do
   d=$(day "-$i")
   n=${pattern[$((i % 15))]}
-  [ "$n" -ge 1 ] && printf -- '---\ntags: [bitácora]\n---\n\nDaily log for %s.\n' "$d" > "$VAULT/Bitacora/$d.md"
-  [ "$n" -ge 2 ] && printf -- '---\ntags: [bitácora]\n---\n\nMeeting notes.\n' > "$VAULT/Bitacora/$d meeting.md"
-  [ "$n" -ge 3 ] && printf -- '---\ntags: [bitácora]\n---\n\nEvening review.\n' > "$VAULT/Bitacora/$d review.md"
+  [ "$n" -ge 1 ] && printf -- '---\ntags: [journal]\n---\n\nDaily log for %s.\n' "$d" > "$VAULT/Journal/$d.md"
+  [ "$n" -ge 2 ] && printf -- '---\ntags: [journal]\n---\n\nMeeting notes.\n' > "$VAULT/Journal/$d meeting.md"
+  [ "$n" -ge 3 ] && printf -- '---\ntags: [journal]\n---\n\nEvening review.\n' > "$VAULT/Journal/$d review.md"
 done
 
 # --- Notes holding the query fences the tapes open ---------------------------
@@ -116,7 +116,7 @@ cat > "$VAULT/Journal.md" <<'EOF'
 # Journal
 
 ```dataview
-CALENDAR FROM "Bitacora"
+CALENDAR FROM "Journal"
 ```
 EOF
 

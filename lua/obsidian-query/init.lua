@@ -146,23 +146,90 @@ local function get_ctx(buf)
   return root and { root = root, buf = buf } or nil
 end
 
+-- bumped on every invalidation; a refetch that started before the bump ran
+-- against pre-write rows and must not clear the stale flag with its result
+local generation = 0
+
+local function mark_all_stale()
+  generation = generation + 1
+  for _, entry in pairs(cache) do
+    entry.stale = true
+  end
+end
+
+---Nudge every buffer holding a stale query fence: a note edited elsewhere
+---changes results in buffers that saw no event of their own, and without a
+---parse pass nothing would refetch them. Retried — render-markdown drops
+---render calls that arrive mid-render, so a single nudge can vanish.
+local function rerender_all()
+  local function nudge()
+    for _, entry in pairs(cache) do
+      if entry.stale then
+        for buf in pairs(entry.bufs) do
+          if vim.api.nvim_buf_is_valid(buf) then
+            require("render-markdown.api").render({ buf = buf, event = "ObsidianQuery" })
+          else
+            entry.bufs[buf] = nil
+          end
+        end
+      end
+    end
+  end
+  local function settled()
+    for _, entry in pairs(cache) do
+      if entry.stale and next(entry.bufs) then
+        return false
+      end
+    end
+    return true
+  end
+  vim.schedule(nudge)
+  render.retry(settled, nudge)
+end
+
 local function mark_stale_on_change()
   if stale_au then
     return
   end
-  stale_au = vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost" }, {
-    group = vim.api.nvim_create_augroup("obsidian_query_stale", { clear = true }),
+  local group = vim.api.nvim_create_augroup("obsidian_query_stale", { clear = true })
+  stale_au = vim.api.nvim_create_autocmd("BufEnter", {
+    group = group,
     pattern = "*.md",
-    callback = function()
-      for _, entry in pairs(cache) do
-        entry.stale = true
-      end
+    callback = mark_all_stale,
+  })
+  -- BufWritePost alone is a trap: obsidian.nvim reindexes a note only when its
+  -- LSP file watcher reports the write, so a refetch fired straight from the
+  -- write reads the OLD row, stores it and clears the stale flag — results then
+  -- sit wrong until nvim restarts. And waiting for that watcher is slow: the
+  -- fs-event pipeline debounces 500ms (vim._watch) on top of FSEvents latency.
+  -- So for writes made inside nvim, push the event through obsidian's watcher
+  -- pipeline ourselves — its cache handler reindexes the row synchronously
+  -- (plain file IO), and the handler below then refreshes every query buffer
+  -- in the same tick.
+  vim.api.nvim_create_autocmd("BufWritePost", {
+    group = group,
+    pattern = "*.md",
+    callback = function(ev)
+      mark_all_stale()
+      pcall(function()
+        require("obsidian.lsp.watchfiles").handle({ { path = ev.match, type = "changed" } })
+      end)
     end,
   })
+  -- the real watcher still matters: it covers writes from outside nvim
+  -- (Obsidian app, sync tools) and the late duplicate of our synthetic event
+  -- is harmless — the refetch just reruns against identical rows.
+  pcall(function()
+    require("obsidian.lsp.watchfiles").register_handler(function()
+      mark_all_stale()
+      rerender_all()
+    end)
+  end)
 end
 
 local function refetch(engine, key, spec, ctx)
   local entry = cache[key]
+  local start_gen = generation
   entry.fetching = true
   engine.run(spec, ctx, function(result)
     if not cache[key] then
@@ -177,7 +244,11 @@ local function refetch(engine, key, spec, ctx)
     -- engines may park view state on the result (calendar month); a refetch
     -- must not snap the user back to the current month
     result.view = entry.result and entry.result.view or nil
-    entry.result, entry.fetching, entry.stale = result, false, false
+    entry.result, entry.fetching = result, false
+    -- an invalidation may have landed while this fetch ran: its data is then
+    -- pre-write — show it (better than a spinner) but stay stale so the
+    -- rerender loop / next parse refetches against the fresh rows
+    entry.stale = generation ~= start_gen
     entry.result_id = (entry.result_id or 0) + 1
     -- keep nudging render-markdown until a parse pass consumes this result
     -- (M.parse stamps shown_id)

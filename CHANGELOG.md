@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.1](https://github.com/dpezto/obsidian-query.nvim/compare/v0.1.0...v0.1.1) (2026-07-30)
+
+
+### Bug Fixes
+
+* refresh query results reliably right after a note is saved ([1b07ed0](https://github.com/dpezto/obsidian-query.nvim/commit/1b07ed045944c35b60420f0682b42c352319d9f9))
+* refresh query results reliably right after a note is saved ([9f86c46](https://github.com/dpezto/obsidian-query.nvim/commit/9f86c46f43f9e7ee99392720b28e2497cf8a3c20))
+* **render:** mirror render-markdown checkbox config for task states ([00dcffa](https://github.com/dpezto/obsidian-query.nvim/commit/00dcffae05f2eb20acddca63b76bf3632d1041ec))
+* **render:** mirror render-markdown checkbox config for task states ([dba134b](https://github.com/dpezto/obsidian-query.nvim/commit/dba134b9626aed8b754f32620d5fab876675c93d))
+
 ## 0.1.0 (2026-07-30)
 
 

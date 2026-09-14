@@ -1,36 +1,43 @@
-# Recording the README GIFs
+# Recording the GIFs
 
-The tapes in `../tapes/` record against a **throwaway** Obsidian vault, so
-recording never touches (or leaks) your real notes. They reuse your local
-Neovim config so the GIFs match whatever colorscheme/plugins/font you already
-run.
+Run from the repository root:
 
 ```sh
-source assets/demo/setup.sh       # builds ~/.cache/obsidian-query-demo/Demo, exports OBSIDIAN_BASE_DIR
-vhs assets/tapes/hero.tape        # -> assets/hero.gif
-vhs assets/tapes/calendar.tape
+vhs assets/tapes/hero.tape
 vhs assets/tapes/tasks.tape
-vhs assets/tapes/completion.tape
 vhs assets/tapes/search.tape
+vhs assets/tapes/calendar.tape
+vhs assets/tapes/completion.tape
 ```
 
-## Prerequisites
+Each tape sources `setup.sh` in Bash to create a fresh temporary vault, then
+opens Neovim with `demo-init.lua`. No manual setup is needed. Dates are
+relative to the recording day. GIFs are written to `assets/`.
 
-- [`vhs`](https://github.com/charmbracelet/vhs) — records the tapes.
-- A Nerd Font — the tapes set `FontFamily "FiraCode Nerd Font"` in
-  `../tapes/style.tape`; swap it there if you use another.
-- A local Neovim config with the plugin's full stack wired: obsidian.nvim
-  (cache enabled, vaults discovered under `$OBSIDIAN_BASE_DIR`),
-  render-markdown.nvim with the obsidian-query handlers, snacks.nvim, and —
-  for `completion.gif` — blink.cmp with the `obsidian_query` source.
+The TASK recording completes two tasks, closes the picker to show the new
+count, then reopens the filtered results.
 
-## How isolation works
+## Requirements
 
-- `setup.sh` builds the demo vault (books, projects with emoji-dated tasks,
-  ~5 weeks of daily notes for the calendar heat map, one note per query shot)
-  and exports `OBSIDIAN_BASE_DIR` so the Neovim config discovers only it.
-  Dates are generated relative to today, so due dates and the calendar are
-  always live.
-- `demo-init.lua` is loaded with `--cmd` before the user config: it stubs the
-  livesync-bridge autostart (no sync process against the demo vault) and
-  freezes the statusline clock at 13:37 so recordings are reproducible.
+- [VHS](https://github.com/charmbracelet/vhs) 0.11.0, ffmpeg, and ttyd.
+  Version 0.12.0 [silently skips exports](https://github.com/charmbracelet/vhs/issues/787).
+- FiraCode Nerd Font, or change `FontFamily` in `../tapes/style.tape`.
+- Your local Neovim config with obsidian.nvim, render-markdown.nvim,
+  snacks.nvim, and this checkout loaded as a development plugin.
+- blink.cmp with the `obsidian_query` source for the completion recording.
+
+Your config must discover vaults under `$OBSIDIAN_BASE_DIR`; the setup script
+points it at the generated demo root. The recording shim disables the local
+livesync bridge and external LSP servers, and fixes the statusline clock.
+Neovim's diagnostic log goes into the temporary directory too.
+
+To inspect the demo manually, start Bash and source the setup script:
+
+```sh
+bash
+source assets/demo/setup.sh
+nvim --cmd 'luafile assets/demo/demo-init.lua' "$OBSIDIAN_BASE_DIR/Demo/Open-tasks.md"
+```
+
+The setup script prints its temporary vault path. Delete that generated
+`obsidian-query-demo.*` directory when finished; each recording creates a new one.

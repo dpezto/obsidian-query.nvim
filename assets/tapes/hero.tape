@@ -1,15 +1,12 @@
-# Hero shot: a TABLE fence rendering live results, then <CR> opening the
-# result picker. Run `source assets/demo/setup.sh` first (throwaway vault).
-#   vhs assets/tapes/hero.tape
-
 Output assets/hero.gif
 
 Source assets/tapes/style.tape
 
 Hide
+Type "source assets/demo/setup.sh" Enter
 # -n (no swapfile): recordings are throwaway, and a stale swap from an earlier
 # session pops an "ignoring swapfile" notification over the shot.
-Type "nvim -i NONE -n --cmd 'luafile assets/demo/demo-init.lua' $HOME/.cache/obsidian-query-demo/Demo/Reading-list.md" Enter
+Type "nvim -i NONE -n --cmd 'luafile assets/demo/demo-init.lua' $OBSIDIAN_BASE_DIR/Demo/Reading-list.md" Enter
 # lazy-load + obsidian cache build + first query render
 Sleep 10s
 Show

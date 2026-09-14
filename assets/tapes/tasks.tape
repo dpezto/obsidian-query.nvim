@@ -1,13 +1,10 @@
-# TASK query: grouped open tasks, picker, live <C-t> checkbox toggle.
-# Run `source assets/demo/setup.sh` first (throwaway vault).
-#   vhs assets/tapes/tasks.tape
-
 Output assets/tasks.gif
 
 Source assets/tapes/style.tape
 
 Hide
-Type "nvim -i NONE -n --cmd 'luafile assets/demo/demo-init.lua' $HOME/.cache/obsidian-query-demo/Demo/Open-tasks.md" Enter
+Type "source assets/demo/setup.sh" Enter
+Type "nvim -i NONE -n --cmd 'luafile assets/demo/demo-init.lua' $OBSIDIAN_BASE_DIR/Demo/Open-tasks.md" Enter
 Sleep 10s
 Show
 Sleep 3.5s
@@ -16,12 +13,24 @@ Type "4G"
 Sleep 1.5s
 Enter
 Sleep 3s
-# toggle the selected task's checkbox in its file
-Ctrl+t
-Sleep 2.5s
+# Complete two different tasks; both rows and the preview update.
 Ctrl+t
 Sleep 2s
+Ctrl+n
+Sleep 1s
+Ctrl+t
+Sleep 2s
+# Return to the note and show the remaining count dropping from eight to six.
 Escape
-Sleep 2s
+Escape
+Type "gg"
+Sleep 4s
+# Reopen the filtered results: completed tasks are gone.
+Type "4G"
+Enter
+Sleep 3s
+Escape
+Escape
+Sleep 1s
 Hide
 Type ":qa!" Enter

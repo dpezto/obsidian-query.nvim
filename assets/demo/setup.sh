@@ -1,19 +1,9 @@
 #!/bin/bash
-# Build a throwaway Obsidian vault for recording the README GIFs, so recording
-# never touches (or leaks) your real vaults. Your real Neovim config is reused
-# as-is, so the GIFs use your colorscheme/plugins/font.
-#
-# Usage:  source assets/demo/setup.sh   (source, not run — it exports an env var)
-#         vhs assets/tapes/hero.tape
-#
-# The Neovim config discovers vaults under $OBSIDIAN_BASE_DIR, so pointing that
-# at the throwaway root makes obsidian.nvim (and obsidian-query) see only the
-# demo vault for this shell.
+# Source from Bash. Each recording gets a fresh vault under the temp directory.
 set -eu
 
-ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/obsidian-query-demo"
+ROOT="$(mktemp -d "${TMPDIR:-/tmp}/obsidian-query-demo.XXXXXX")"
 VAULT="$ROOT/Demo"
-rm -rf "$VAULT" # drop stale notes from previous runs
 mkdir -p "$VAULT/.obsidian" "$VAULT/Books" "$VAULT/Projects" "$VAULT/Journal"
 
 # --- dates relative to today, so queries/calendar always have live data ------
@@ -42,9 +32,16 @@ book "Too Like the Lightning" paused 3 "Ada Palmer" 432 -90
 book "This Is How You Lose the Time War" done 5 "El-Mohtar & Gladstone" 209 -21
 
 # --- Projects: tasks with Tasks-plugin emoji dates for the TASK shots --------
+# Include save-time metadata so the local config doesn't shift task lines.
 cat > "$VAULT/Projects/Apollo.md" <<EOF
 ---
-tags: [project]
+id: Apollo
+aliases: []
+tags:
+  - project
+lang: en
+created: $(day -14) 13:37
+updated: $(day -1) 13:37
 ---
 
 ## Launch
@@ -62,7 +59,13 @@ EOF
 
 cat > "$VAULT/Projects/Hyperion.md" <<EOF
 ---
-tags: [project]
+id: Hyperion
+aliases: []
+tags:
+  - project
+lang: en
+created: $(day -14) 13:37
+updated: $(day -1) 13:37
 ---
 
 ## Research
@@ -139,5 +142,4 @@ EOF
 
 export OBSIDIAN_BASE_DIR="$ROOT"
 echo "Demo vault ready: $VAULT"
-echo "OBSIDIAN_BASE_DIR now points at the throwaway root for this shell."
-echo "Record with:  vhs assets/tapes/<name>.tape"
+export NVIM_LOG_FILE="$ROOT/nvim.log"

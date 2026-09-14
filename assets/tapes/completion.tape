@@ -1,13 +1,10 @@
-# blink.cmp completion: DQL keywords, implicit fields and vault data while
-# typing a query. Run `source assets/demo/setup.sh` first (throwaway vault).
-#   vhs assets/tapes/completion.tape
-
 Output assets/completion.gif
 
 Source assets/tapes/style.tape
 
 Hide
-Type "nvim -i NONE -n --cmd 'luafile assets/demo/demo-init.lua' $HOME/.cache/obsidian-query-demo/Demo/Scratch.md" Enter
+Type "source assets/demo/setup.sh" Enter
+Type "nvim -i NONE -n --cmd 'luafile assets/demo/demo-init.lua' $OBSIDIAN_BASE_DIR/Demo/Scratch.md" Enter
 Sleep 10s
 Show
 Sleep 1.5s

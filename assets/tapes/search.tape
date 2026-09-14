@@ -1,13 +1,10 @@
-# Core-Search fence: matched lines under each note, then the picker.
-# Run `source assets/demo/setup.sh` first (throwaway vault).
-#   vhs assets/tapes/search.tape
-
 Output assets/search.gif
 
 Source assets/tapes/style.tape
 
 Hide
-Type "nvim -i NONE -n --cmd 'luafile assets/demo/demo-init.lua' $HOME/.cache/obsidian-query-demo/Demo/Search.md" Enter
+Type "source assets/demo/setup.sh" Enter
+Type "nvim -i NONE -n --cmd 'luafile assets/demo/demo-init.lua' $OBSIDIAN_BASE_DIR/Demo/Search.md" Enter
 Sleep 10s
 Show
 Sleep 3.5s

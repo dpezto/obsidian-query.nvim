@@ -1,13 +1,10 @@
-# CALENDAR heat map: month navigation with <Left>/<Right>/<Home>.
-# Run `source assets/demo/setup.sh` first (throwaway vault).
-#   vhs assets/tapes/calendar.tape
-
 Output assets/calendar.gif
 
 Source assets/tapes/style.tape
 
 Hide
-Type "nvim -i NONE -n --cmd 'luafile assets/demo/demo-init.lua' $HOME/.cache/obsidian-query-demo/Demo/Journal.md" Enter
+Type "source assets/demo/setup.sh" Enter
+Type "nvim -i NONE -n --cmd 'luafile assets/demo/demo-init.lua' $OBSIDIAN_BASE_DIR/Demo/Journal.md" Enter
 Sleep 10s
 Show
 Sleep 3s

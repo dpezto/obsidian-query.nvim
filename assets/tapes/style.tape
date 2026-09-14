@@ -2,6 +2,8 @@
 #   Source assets/tapes/style.tape
 # Paths are relative to the repo root, so run vhs from there.
 
+Set Shell "bash"
+
 Set FontFamily "FiraCode Nerd Font"
 Set FontSize 18
 Set Width 1300

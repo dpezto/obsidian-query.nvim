@@ -158,8 +158,8 @@ function M.get(ctx, cb)
     local stale = {}
     for path, row in pairs(rows) do
       local s = sup[path]
-      if not s or s.mtime ~= row.mtime then
-        stale[#stale + 1] = { path = path, mtime = row.mtime }
+      if not s or s.mtime ~= row.mtime or s.mtime_nsec ~= row.mtime_nsec or s.size ~= row.size then
+        stale[#stale + 1] = { path = path, mtime = row.mtime, mtime_nsec = row.mtime_nsec, size = row.size }
       end
     end
     local i = 1
@@ -169,7 +169,8 @@ function M.get(ctx, cb)
         local e = stale[i]
         i = i + 1
         local data = extract_sup(e.path)
-        sup[e.path] = { mtime = e.mtime, fields = data.fields, headers = data.headers }
+        data.mtime, data.mtime_nsec, data.size = e.mtime, e.mtime_nsec, e.size
+        sup[e.path] = data
       end
       if i <= #stale then
         vim.schedule(step)

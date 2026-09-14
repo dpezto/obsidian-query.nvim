@@ -36,16 +36,17 @@ local function snacks_open(title, items, opts)
   local extra
   if opts and opts.toggle then
     local function toggle_action(picker, item)
+      -- Native cursor movement can precede Snacks' CursorMoved selection sync.
+      if vim.api.nvim_get_current_win() == picker.list.win.win then
+        local row = vim.fn.line(".") - vim.fn.line("w0") + 1
+        picker.list:view(picker.list:row2idx(row), nil, false)
+        item = picker:current()
+      end
       if opts.toggle(item) == nil then
         return
       end
-      pcall(function()
-        picker.list.dirty = true -- render() is a no-op unless marked dirty
-        picker.list:render()
-      end)
-      pcall(function()
-        picker.preview:refresh(picker) -- drop the memoized item so the file re-reads
-      end)
+      picker.list:update({ force = true })
+      picker.preview:refresh(picker) -- drop the memoized item so the file re-reads
     end
     extra = {
       actions = { toggle_task = toggle_action },
@@ -59,7 +60,7 @@ local function snacks_open(title, items, opts)
     title = title,
     items = items,
     format = style() == "rich" and function(item)
-      return item.display
+      return vim.deepcopy(item.display) -- Snacks trims/mutates formatter output
     end or "file",
   }, extra or {}))
 end
@@ -69,7 +70,6 @@ local function telescope_open(title, items, opts)
   local pickers = require("telescope.pickers")
   local finders = require("telescope.finders")
   local conf = require("telescope.config").values
-  local actions = require("telescope.actions")
   local action_state = require("telescope.actions.state")
 
   local function entry_maker(item)
@@ -122,20 +122,16 @@ end
 local function fzf_open(title, items, opts)
   local fzf = require("fzf-lua")
   -- fzf hands back plain display strings; index them for the reverse lookup
-  local function lines()
-    local out, lookup = {}, {}
-    for _, item in ipairs(items) do
-      local line = plain(item)
-      -- disambiguate duplicate rows instead of silently merging them
-      while lookup[line] do
-        line = line .. " "
-      end
-      lookup[line] = item
-      out[#out + 1] = line
+  local out, lookup = {}, {}
+  for _, item in ipairs(items) do
+    local line = plain(item)
+    -- disambiguate duplicate rows instead of silently merging them
+    while lookup[line] do
+      line = line .. " "
     end
-    return out, lookup
+    lookup[line] = item
+    out[#out + 1] = line
   end
-  local out, lookup = lines()
   local acts = {
     ["default"] = function(selected)
       jump(lookup[selected and selected[1]])

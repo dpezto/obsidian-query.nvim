@@ -104,10 +104,9 @@ end
 
 ---Byte offset (1-based) within `body` -> buffer (row, col), given body start.
 local function make_locator(body, start_row)
-  local line_starts, off = { 1 }, 1
+  local line_starts = { 1 }
   for nl in body:gmatch("()\n") do
     line_starts[#line_starts + 1] = nl + 1
-    off = nl + 1
   end
   return function(pos)
     -- binary-search not needed: fence bodies are tiny

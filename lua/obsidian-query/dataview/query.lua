@@ -397,7 +397,7 @@ local function project(header, rows, ctx)
       for _, g in ipairs(rows) do
         local items = {}
         for _, member in ipairs(g.rows) do
-          if getmetatable(member._task or {}) == value.task_mt or member._task then
+          if member._task then
             items[#items + 1] = member._task
           end
         end

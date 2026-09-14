@@ -195,7 +195,11 @@ local function mark_stale_on_change()
   stale_au = vim.api.nvim_create_autocmd("BufEnter", {
     group = group,
     pattern = "*.md",
-    callback = mark_all_stale,
+    callback = function()
+      mark_all_stale()
+      -- Picker-mode renders may have been skipped until retries ran out.
+      rerender_all()
+    end,
   })
   -- BufWritePost alone is a trap: obsidian.nvim reindexes a note only when its
   -- LSP file watcher reports the write, so a refetch fired straight from the

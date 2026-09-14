@@ -121,8 +121,6 @@ function M.task(t)
   return setmetatable(t, task_mt)
 end
 
-M.task_mt = task_mt
-
 ---------------------------------------------------------------- typeof
 
 function M.typeof(v)

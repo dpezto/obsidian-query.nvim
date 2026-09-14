@@ -42,11 +42,11 @@ R.typeof = function(_, args)
 end
 
 R.default = vectorize(function(_, args)
-  return T(args[1]) == "null" and args[2] or args[1]
+  return args[T(args[1]) == "null" and 2 or 1]
 end)
 
 R.choice = function(_, args)
-  return value.truthy(args[1]) and args[2] or args[3]
+  return args[value.truthy(args[1]) and 2 or 3]
 end
 
 R.length = function(_, args)
@@ -164,12 +164,8 @@ end
 
 ---------------------------------------------------------------- strings
 
-R.lower = str_fn(function(s)
-  return s:lower()
-end)
-R.upper = str_fn(function(s)
-  return s:upper()
-end)
+R.lower = str_fn(string.lower)
+R.upper = str_fn(string.upper)
 R.trim = str_fn(function(s)
   return vim.trim(s)
 end)
@@ -246,11 +242,11 @@ end
 
 R.first = function(_, args)
   local a = as_array(args[1])
-  return #a > 0 and a[1] or NULL
+  return #a == 0 and NULL or a[1]
 end
 R.last = function(_, args)
   local a = as_array(args[1])
-  return #a > 0 and a[#a] or NULL
+  return #a == 0 and NULL or a[#a]
 end
 R.reverse = function(_, args)
   local a, out = as_array(args[1]), {}
@@ -264,7 +260,11 @@ R.sort = function(_, args)
   local keyfn = type(args[2]) == "function" and args[2]
   local decorated = {}
   for i, el in ipairs(a) do
-    decorated[i] = { el = el, key = keyfn and keyfn({ el }) or el, i = i }
+    local key = el
+    if keyfn then
+      key = keyfn({ el })
+    end
+    decorated[i] = { el = el, key = key, i = i }
   end
   table.sort(decorated, function(x, y)
     local c = value.cmp(x.key, y.key)
@@ -357,7 +357,10 @@ R.nonnull = function(_, args)
 end
 R.any = function(_, args)
   for _, el in ipairs(as_array(args[1])) do
-    local v = type(args[2]) == "function" and args[2]({ el }) or el
+    local v = el
+    if type(args[2]) == "function" then
+      v = args[2]({ el })
+    end
     if value.truthy(v) then
       return true
     end
@@ -369,7 +372,10 @@ R.none = function(env, args)
 end
 R.all = function(_, args)
   for _, el in ipairs(as_array(args[1])) do
-    local v = type(args[2]) == "function" and args[2]({ el }) or el
+    local v = el
+    if type(args[2]) == "function" then
+      v = args[2]({ el })
+    end
     if not value.truthy(v) then
       return false
     end

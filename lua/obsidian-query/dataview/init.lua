@@ -15,7 +15,7 @@ function M.parse(body)
 end
 
 function M.key(spec, ctx)
-  return "dataview\0" .. ctx.root .. "\0" .. spec.body
+  return "dataview\0" .. ctx.root .. "\0" .. (ctx.buf or "") .. "\0" .. spec.body
 end
 
 function M.run(spec, ctx, cb)
@@ -65,10 +65,18 @@ local open_items = base.picker
 
 ---Flip a checkbox line: `[ ]` <-> `[x]` (any non-blank state resets to open).
 ---@param line string
+---@param expected_text string? reject a stale picker row
 ---@return string? toggled nil when the line holds no checkbox
-function M.toggle_task_line(line)
-  local pre, state, post = line:match("^(%s*.-%[)([^%]])(%].*)$")
+function M.toggle_task_line(line, expected_text)
+  local pre, state, post = line:match("^(%s*[%-%*%+]%s+%[)([^%]])(%].*)$")
   if not pre then
+    pre, state, post = line:match("^(%s*%d+[%.%)]%s+%[)([^%]])(%].*)$")
+  end
+  if not pre or (post ~= "]" and not post:match("^%]%s")) then
+    return nil
+  end
+  -- ponytail: text guards stale rows; identical tasks need persistent IDs to distinguish.
+  if expected_text and (post:match("^%]%s(.*)$") or "") ~= expected_text then
     return nil
   end
   return pre .. (state == " " and "x" or " ") .. post
@@ -88,8 +96,9 @@ local function toggle_item(item)
   vim.fn.bufload(buf)
   local lnum = item.pos[1]
   local line = vim.api.nvim_buf_get_lines(buf, lnum - 1, lnum, false)[1]
-  local toggled = line and M.toggle_task_line(line)
+  local toggled = line and M.toggle_task_line(line, item.task_text)
   if not toggled then
+    vim.notify("obsidian-query: task changed or moved; reopen the query picker", vim.log.levels.WARN)
     return nil
   end
   vim.bo[buf].buflisted = true
@@ -152,6 +161,7 @@ function M.pick(spec, ctx, result)
           file = task.path,
           text = note_name(task.path) .. " " .. task.text,
           pos = { task.line, 0 },
+          task_text = task.text,
           display = {
             { note_name(task.path), "Directory" },
             { "  " },

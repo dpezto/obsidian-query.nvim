@@ -616,11 +616,84 @@ vim.fn.delete(tmp, "rf")
 ---------------------------------------------------------------- task toggle
 group = "toggle"
 local dv_engine = require("obsidian-query.dataview")
+for _, expr in ipairs({
+  "choice(true, false, true)", "default(null, false)", "first([false])", "last([false])",
+  "any([true], (t) => false)", "all([true], (t) => false)",
+  "any(file.tasks, (t) => t.completed AND !t.completed)",
+}) do
+  check(ev(expr) == false, "false survives function result: " .. expr)
+end
+check(ev("none([true], (t) => false)") == true, "none respects a false predicate")
+check(ev("first(sort([1, 2], (n) => n = 1)) = 2") == true, "sort preserves false keys")
+local completed_ctx = vim.deepcopy(CTX)
+for _, row in pairs(completed_ctx.index) do
+  for _, task in ipairs(row.tasks) do task.state = "x" end
+end
+local completed_result = query.run("TASK WHERE any(file.tasks, (t) => !t.completed)", completed_ctx)
+check(completed_result.ok and #completed_result.data.groups == 0, "TASK query empties when all tasks are completed")
 check(dv_engine.toggle_task_line("- [ ] hacer algo") == "- [x] hacer algo", "open -> done")
 check(dv_engine.toggle_task_line("  - [x] hecho") == "  - [ ] hecho", "done -> open")
 check(dv_engine.toggle_task_line("3. [/] parcial") == "3. [ ] parcial", "custom state resets to open")
 check(dv_engine.toggle_task_line("plain prose line") == nil, "no checkbox -> nil")
 check(dv_engine.toggle_task_line("- [ ] outer [x] inner") == "- [x] outer [x] inner", "first checkbox wins")
+check(dv_engine.toggle_task_line("prose [x] reference") == nil, "prose brackets are not tasks")
+check(dv_engine.toggle_task_line("- link [x](url)") == nil, "list links are not tasks")
+check(dv_engine.toggle_task_line("- [ ] changed", "original") == nil, "stale task text is rejected")
+check(dv_engine.toggle_task_line("2) [X] original", "original") == "2) [ ] original", "numbered task reopens")
+
+local key_a = vim.api.nvim_create_buf(false, true)
+local key_b = vim.api.nvim_create_buf(false, true)
+local spec = dv_engine.parse("TASK WHERE file.path = this.file.path")
+check(dv_engine.key(spec, { root = ROOT, buf = key_a }) ~= dv_engine.key(spec, { root = ROOT, buf = key_b }),
+  "this-dependent queries have separate cache entries per note")
+vim.api.nvim_buf_delete(key_a, { force = true })
+vim.api.nvim_buf_delete(key_b, { force = true })
+
+-- Exercise the actual picker callback against a temporary note.
+local task_path = vim.fn.tempname() .. ".md"
+vim.fn.writefile({ "- [ ] original", "- [ ] other" }, task_path)
+local picker = require("obsidian-query.picker")
+local saved_open, saved_notify = picker.open, vim.notify
+local picked, toggle, warning
+picker.open = function(_, items, opts)
+  picked, toggle = items[1], opts.toggle
+end
+vim.notify = function(msg) warning = msg end
+dv_engine.pick({}, {}, { ok = true, data = { kind = "task", groups = { { items = {
+  { path = task_path, text = "original", line = 1, status = " ", completed = false },
+} } } } })
+check(toggle(picked) == true and vim.fn.readfile(task_path)[1] == "- [x] original", "picker persists completion")
+check(toggle(picked) == false and vim.fn.readfile(task_path)[1] == "- [ ] original", "picker persists reopening")
+local task_buf = vim.fn.bufnr(task_path)
+vim.api.nvim_buf_set_lines(task_buf, 0, 0, false, { "- [ ] inserted" })
+check(toggle(picked) == nil and warning ~= nil, "stale picker warns instead of toggling another task")
+check(vim.api.nvim_buf_get_lines(task_buf, 0, 1, false)[1] == "- [ ] inserted", "unrelated task remains untouched")
+check(vim.fn.readfile(task_path)[1] == "- [ ] original", "stale toggle does not write unsaved edits")
+picker.open, vim.notify = saved_open, saved_notify
+vim.api.nvim_buf_delete(task_buf, { force = true })
+vim.fn.delete(task_path)
+
+-- Production index path must retain lists and use the cache's full timestamp.
+local index_path = vim.fn.tempname() .. ".md"
+local index_root = vim.fs.dirname(index_path)
+local rows = { [index_path] = { mtime = 10, mtime_nsec = 1, size = 12, tasks = {} } }
+local saved_cache, saved_obsidian = package.loaded["obsidian.cache"], _G.Obsidian
+_G.Obsidian = nil
+package.loaded["obsidian.cache"] = {
+  is_enabled = function() return true end,
+  when_ready = function(cb) cb() end,
+  notes = { all = function() return rows end },
+}
+local indexed
+vim.fn.writefile({ "- first" }, index_path)
+idx_mod.get({ root = index_root }, function(result) indexed = result end)
+check(indexed.sup[index_path].lists and indexed.sup[index_path].lists[1].text == "first", "index retains extracted lists")
+vim.fn.writefile({ "- other" }, index_path)
+rows[index_path].mtime_nsec = 2
+idx_mod.get({ root = index_root }, function(result) indexed = result end)
+check(indexed.sup[index_path].lists[1].text == "other", "same-second edit refreshes supplement")
+package.loaded["obsidian.cache"], _G.Obsidian = saved_cache, saved_obsidian
+vim.fn.delete(index_path)
 
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"
@@ -664,5 +737,69 @@ check(fres.data.from.folder == "Journal", "folder name kept for the title")
 local tagres = run("LIST FROM #día")
 check(tagres.data.from.k == "s_tag" and tagres.data.from.tag == "día", "FROM tag exposed")
 check(run("LIST").data.from == nil, "no FROM -> no source on result")
+
+-- Closing a picker must restart refreshes that were skipped while it was open.
+do
+  group = "picker close refresh"
+  local saved_ts, saved_text = vim.treesitter.query.parse, vim.treesitter.get_node_text
+  local saved_retry, saved_get = base.retry, idx_mod.get
+  local saved_ob = _G.Obsidian
+  local modules = {}
+  for _, name in ipairs({ "obsidian.api", "obsidian-query.highlight", "render-markdown.api", "obsidian.lsp.watchfiles" }) do
+    modules[name] = package.loaded[name] or false
+  end
+  local note = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(note, ROOT .. "/remaining.md")
+  vim.api.nvim_buf_set_lines(note, 0, -1, false, { "```dataview", "TASK WHERE !completed", "```", "" })
+  vim.api.nvim_set_current_buf(note)
+  local lang, body = { text = "dataview" }, { text = "TASK WHERE !completed" }
+  local block = { range = function() return 0, 0, 3, 0 end }
+  vim.treesitter.query.parse = function()
+    return { captures = { "lang", "body", "block" }, iter_matches = function()
+      local done = false
+      return function()
+        if not done then
+          done = true
+          return 1, { { lang }, { body }, { block } }
+        end
+      end
+    end }
+  end
+  vim.treesitter.get_node_text = function(node) return node.text end
+  package.loaded["obsidian-query.highlight"] = { attach = function() end }
+  package.loaded["obsidian.api"] = { find_workspace = function() return { path = ROOT } end }
+  _G.Obsidian = { workspace = { path = ROOT } }
+  local changed
+  package.loaded["obsidian.lsp.watchfiles"] = { register_handler = function(cb) changed = cb end }
+  local rows = vim.deepcopy(INDEX)
+  idx_mod.get = function(_, cb) cb({ rows = rows, sup = SUP, inlinks = INLINKS }) end
+  base.retry = function() end -- model the bounded retries having expired
+  local core = require("obsidian-query")
+  local count
+  local function draw()
+    local marks = core.parse({ buf = note })
+    local lines = marks[1].opts.virt_lines
+    count = lines[#lines][2][1]
+  end
+  package.loaded["render-markdown.api"] = { render = function()
+    if vim.api.nvim_get_current_buf() == note then draw() end
+  end }
+  draw()
+  check(count == "1 tasks", "initial remaining task count")
+  local picker_buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_set_current_buf(picker_buf)
+  rows[ROOT .. "/Journal/2026-07-01.md"].tasks[1].state = "x"
+  changed()
+  vim.wait(20, function() return false end)
+  check(count == "1 tasks", "refresh skipped while picker was open")
+  vim.api.nvim_set_current_buf(note)
+  check(vim.wait(200, function() return count == "0 tasks" end), "closing picker refreshes remaining count")
+  vim.api.nvim_del_augroup_by_name("obsidian_query_stale")
+  vim.api.nvim_buf_delete(picker_buf, { force = true })
+  vim.api.nvim_buf_delete(note, { force = true })
+  vim.treesitter.query.parse, vim.treesitter.get_node_text = saved_ts, saved_text
+  base.retry, idx_mod.get, _G.Obsidian = saved_retry, saved_get, saved_ob
+  for name, module in pairs(modules) do package.loaded[name] = module or nil end
+end
 
 io.write(("all %d checks passed\n"):format(n_ok))

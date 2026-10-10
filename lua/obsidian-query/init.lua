@@ -174,9 +174,13 @@ local live = {}
 ---parse pass nothing would refetch them. Retried — render-markdown drops
 ---render calls that arrive mid-render, so a single nudge can vanish.
 local function rerender_all()
+  -- stale, or holding a result no parse pass has shown yet
+  local function pending(entry)
+    return entry.stale or entry.shown_id ~= entry.result_id
+  end
   local function nudge()
     for _, entry in pairs(cache) do
-      if entry.stale then
+      if pending(entry) then
         for buf in pairs(entry.bufs) do
           if vim.api.nvim_buf_is_valid(buf) then
             require("render-markdown.api").render({ buf = buf, event = "ObsidianQuery" })
@@ -189,7 +193,7 @@ local function rerender_all()
   end
   local function settled()
     for _, entry in pairs(cache) do
-      if entry.stale and next(entry.bufs) then
+      if pending(entry) and next(entry.bufs) then
         return false
       end
     end
@@ -204,14 +208,13 @@ local function mark_stale_on_change()
     return
   end
   local group = vim.api.nvim_create_augroup("obsidian_query_stale", { clear = true })
+  -- entering a buffer changes no data: only push through what is already
+  -- stale or unshown (picker-mode renders may have been skipped until
+  -- retries ran out)
   stale_au = vim.api.nvim_create_autocmd("BufEnter", {
     group = group,
     pattern = "*.md",
-    callback = function()
-      mark_all_stale()
-      -- Picker-mode renders may have been skipped until retries ran out.
-      rerender_all()
-    end,
+    callback = rerender_all,
   })
   vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
     group = group,

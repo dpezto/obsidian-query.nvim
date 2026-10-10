@@ -803,6 +803,10 @@ do
     fetches = fetches + 1
     cb({ rows = rows, sup = SUP, inlinks = INLINKS })
   end
+  vim.api.nvim_set_current_buf(picker_buf)
+  vim.api.nvim_set_current_buf(note)
+  vim.wait(20, function() return false end)
+  check(fetches == 0, "entering an unchanged note reruns no query")
   fence_on = false
   core.parse({ buf = note })
   fence_on = true

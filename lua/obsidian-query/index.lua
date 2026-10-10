@@ -1,7 +1,8 @@
 -- Vault index for the dataview engine.
 --
 -- Primary data: obsidian.nvim's cache rows
---   { mtime, size, aliases[], tags[], properties, links_out[], tasks[] }.
+--   { stat = {mtime_sec, mtime_nsec, size}, aliases[], tags[], properties,
+--     links_out[], tasks[] } (pre-v3.16 rows keep mtime/mtime_nsec/size flat).
 -- Supplement (built here, mtime-keyed per note, in-memory):
 --   fields  : inline `Key:: value` fields (full-line and [key:: v]/(key:: v))
 --   headers : { {line, level, text} } (1-indexed lines)
@@ -157,9 +158,11 @@ function M.get(ctx, cb)
     -- refresh stale supplements in batches off the fast path
     local stale = {}
     for path, row in pairs(rows) do
+      local st = row.stat or row -- v3.16+ nests stats; older rows were flat
+      local mtime = st.mtime_sec or st.mtime
       local s = sup[path]
-      if not s or s.mtime ~= row.mtime or s.mtime_nsec ~= row.mtime_nsec or s.size ~= row.size then
-        stale[#stale + 1] = { path = path, mtime = row.mtime, mtime_nsec = row.mtime_nsec, size = row.size }
+      if not s or s.mtime ~= mtime or s.mtime_nsec ~= st.mtime_nsec or s.size ~= st.size then
+        stale[#stale + 1] = { path = path, mtime = mtime, mtime_nsec = st.mtime_nsec, size = st.size }
       end
     end
     local i = 1

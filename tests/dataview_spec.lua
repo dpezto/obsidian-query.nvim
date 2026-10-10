@@ -676,7 +676,8 @@ vim.fn.delete(task_path)
 -- Production index path must retain lists and use the cache's full timestamp.
 local index_path = vim.fn.tempname() .. ".md"
 local index_root = vim.fs.dirname(index_path)
-local rows = { [index_path] = { mtime = 10, mtime_nsec = 1, size = 12, tasks = {} } }
+-- obsidian.nvim v3.16 row layout: stats nested under `stat`
+local rows = { [index_path] = { stat = { mtime_sec = 10, mtime_nsec = 1, size = 12 }, tasks = {} } }
 local saved_cache, saved_obsidian = package.loaded["obsidian.cache"], _G.Obsidian
 _G.Obsidian = nil
 package.loaded["obsidian.cache"] = {
@@ -689,9 +690,11 @@ vim.fn.writefile({ "- first" }, index_path)
 idx_mod.get({ root = index_root }, function(result) indexed = result end)
 check(indexed.sup[index_path].lists and indexed.sup[index_path].lists[1].text == "first", "index retains extracted lists")
 vim.fn.writefile({ "- other" }, index_path)
-rows[index_path].mtime_nsec = 2
+rows[index_path].stat.mtime_nsec = 2
 idx_mod.get({ root = index_root }, function(result) indexed = result end)
 check(indexed.sup[index_path].lists[1].text == "other", "same-second edit refreshes supplement")
+local spage = page_mod.build(index_path, rows[index_path], { root = index_root })
+check(spage.file.size == 12 and spage.file.mtime.ts == 10, "page reads nested stat (size, mtime)")
 package.loaded["obsidian.cache"], _G.Obsidian = saved_cache, saved_obsidian
 vim.fn.delete(index_path)
 

@@ -240,6 +240,9 @@ function M.build(abs_path, row, ctx)
   end
 
   local tasks = M.build_tasks(abs_path, row.tasks, sup.headers or {}, rel)
+  -- obsidian.nvim v3.16+ nests file stats under row.stat; older rows were flat
+  local stat = row.stat or row
+  local mtime = stat.mtime_sec or stat.mtime or 0
 
   page.file = setmetatable({
     name = name,
@@ -247,9 +250,9 @@ function M.build(abs_path, row, ctx)
     path = rel,
     ext = vim.fn.fnamemodify(rel, ":e"),
     link = value.link(rel),
-    size = row.size or 0,
-    mtime = value.date(row.mtime or 0, "datetime"),
-    mday = value.date(row.mtime or 0, "date"),
+    size = stat.size or 0,
+    mtime = value.date(mtime, "datetime"),
+    mday = value.date(mtime, "date"),
     day = day,
     tags = value.array(expand_tags(row.tags)),
     etags = value.array(vim.tbl_map(function(t)

@@ -129,7 +129,7 @@ function M.get(ctx, cb)
   end
   -- the cache holds only the ACTIVE vault; a buffer from another workspace
   -- must not be re-evaluated against it (results would empty out)
-  local active = _G.Obsidian and Obsidian.workspace and vim.fs.normalize(tostring(Obsidian.workspace.path))
+  local active = _G.Obsidian and Obsidian.dir and vim.fs.normalize(tostring(Obsidian.dir))
   if active and vim.fs.normalize(ctx.root) ~= active then
     cb(nil, "workspace not active", true)
     return

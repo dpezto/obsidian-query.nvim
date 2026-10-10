@@ -42,7 +42,7 @@ function M.check()
     h.ok(("obsidian.nvim cache ready (%d notes)"):format(cache.notes.count()))
     -- the cache serving a different vault than the active workspace renders
     -- every query empty — the classic symptom after a workspace switch
-    local active = _G.Obsidian and Obsidian.workspace and vim.fs.normalize(tostring(Obsidian.workspace.path))
+    local active = _G.Obsidian and Obsidian.dir and vim.fs.normalize(tostring(Obsidian.dir))
     if active then
       local any, matching = false, false
       for path in pairs(cache.notes.all()) do

@@ -35,7 +35,7 @@ function M.setup(opts)
         return require("obsidian.api").find_workspace(vim.api.nvim_buf_get_name(ev.buf))
       end)
       local active = _G.Obsidian and Obsidian.workspace
-      if ok and ws and active and tostring(ws.path) ~= tostring(active.path) then
+      if ok and ws and active and tostring(ws.root) ~= tostring(active.root) then
         pcall(require("obsidian.workspace").set, ws)
       end
     end,
@@ -137,7 +137,9 @@ function M.buf_root(buf)
     return require("obsidian.api").find_workspace(path)
   end)
   ws = (ok and ws) or Obsidian.workspace
-  return ws and vim.fs.normalize(tostring(ws.path)) or nil
+  -- the vault root, not ws.path: a non-strict workspace in a vault subfolder
+  -- still queries (and is cached by obsidian.nvim) as the whole vault
+  return ws and vim.fs.normalize(tostring(ws.root)) or nil
 end
 
 -- Workspace context for a fence; nil outside an Obsidian workspace

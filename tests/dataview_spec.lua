@@ -770,8 +770,8 @@ do
   end
   vim.treesitter.get_node_text = function(node) return node.text end
   package.loaded["obsidian-query.highlight"] = { attach = function() end }
-  package.loaded["obsidian.api"] = { find_workspace = function() return { path = ROOT } end }
-  _G.Obsidian = { workspace = { path = ROOT } }
+  package.loaded["obsidian.api"] = { find_workspace = function() return { path = ROOT, root = ROOT } end }
+  _G.Obsidian = { workspace = { path = ROOT, root = ROOT }, dir = ROOT }
   local changed
   package.loaded["obsidian.lsp.watchfiles"] = { register_handler = function(cb) changed = cb end }
   local rows = vim.deepcopy(INDEX)

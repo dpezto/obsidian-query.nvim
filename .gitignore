@@ -1,1 +1,8 @@
 doc/tags
+
+# test dependencies checked out by CI (snacks.nvim for the picker test)
+.deps/
+
+# luacov artefacts (COVERAGE=1 make test)
+luacov.stats.out
+luacov.report.out

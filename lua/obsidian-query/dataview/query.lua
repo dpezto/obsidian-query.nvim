@@ -16,10 +16,17 @@ local NULL = value.NULL
 
 ---------------------------------------------------------------- FROM
 
-local function resolve_link_path(raw, ctx)
+---@param source string? linking note; markdown links resolve against its folder first
+local function resolve_link_path(raw, ctx, source)
   local target = vim.trim(raw:gsub("|.*$", ""):gsub("#.*$", ""))
   if target == "" then
     return ctx.this_path
+  end
+  if source then
+    local rel = vim.fs.normalize(vim.fs.dirname(source) .. "/" .. target)
+    if ctx.index[rel] or ctx.index[rel .. ".md"] then
+      return ctx.index[rel] and rel or (rel .. ".md")
+    end
   end
   local direct = ctx.root .. "/" .. target
   if ctx.index[direct] then
@@ -75,7 +82,7 @@ local function source_set(src, ctx)
     local row = target and ctx.index[target]
     for _, l in ipairs(row and row.links_out or {}) do
       if l.target and l.target ~= "" then
-        local p = resolve_link_path(l.target, ctx)
+        local p = resolve_link_path(l.target, ctx, l.kind == "markdown" and target or nil)
         if p then
           out[p] = true
         end

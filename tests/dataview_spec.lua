@@ -697,6 +697,19 @@ idx_mod.get({ root = index_root }, function(result) indexed = result end)
 check(indexed.sup[index_path].lists[1].text == "other", "same-second edit refreshes supplement")
 local spage = page_mod.build(index_path, rows[index_path], { root = index_root })
 check(spage.file.size == 12 and spage.file.mtime.ts == 10, "page reads nested stat (size, mtime)")
+-- relative markdown links resolve against the linking note's folder first
+local rel_root = "/relvault"
+rows = {
+  [rel_root .. "/peer.md"] = { stat = {} },
+  [rel_root .. "/sub/peer.md"] = { stat = {} },
+  [rel_root .. "/sub/source.md"] = { stat = {}, links_out = { { target = "peer.md", kind = "markdown" } } },
+}
+idx_mod.get({ root = rel_root }, function(result) indexed = result end)
+check(indexed.inlinks[rel_root .. "/sub/peer.md"] and not indexed.inlinks[rel_root .. "/peer.md"],
+  "markdown link resolves to the sibling note")
+local out_res = query.run("LIST FROM outgoing([[sub/source]])", { index = rows, root = rel_root })
+check(out_res.ok and #out_res.data.groups[1].items == 1 and out_res.data.groups[1].items[1].path == rel_root .. "/sub/peer.md",
+  "outgoing() resolves relative markdown targets")
 package.loaded["obsidian.cache"], _G.Obsidian = saved_cache, saved_obsidian
 vim.fn.delete(index_path)
 

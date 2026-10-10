@@ -126,11 +126,18 @@ local function make_resolver(rows)
     by_name[vim.fn.fnamemodify(path, ":t:r"):lower()] = path
     by_name[vim.fn.fnamemodify(path, ":t"):lower()] = path
   end
-  return function(target, root)
+  ---@param source string? linking note; markdown links resolve against its folder first
+  return function(target, root, source)
     if not target or target == "" then
       return nil
     end
     target = target:gsub("#.*$", ""):gsub("%s+$", "")
+    if source then
+      local rel = vim.fs.normalize(vim.fs.dirname(source) .. "/" .. target)
+      if rows[rel] or rows[rel .. ".md"] then
+        return rows[rel] and rel or (rel .. ".md")
+      end
+    end
     local direct = root .. "/" .. target
     if rows[direct] or rows[direct .. ".md"] then
       return rows[direct] and direct or (direct .. ".md")
@@ -168,7 +175,7 @@ function M.get(ctx, cb)
     local inlinks = {}
     for path, row in pairs(rows) do
       for _, l in ipairs(row.links_out or {}) do
-        local target = resolve(l.target, ctx.root)
+        local target = resolve(l.target, ctx.root, l.kind == "markdown" and path or nil)
         if target then
           inlinks[target] = inlinks[target] or {}
           table.insert(inlinks[target], path)

@@ -254,11 +254,21 @@ local function run_commands(rows, cmds, ctx)
       local buckets, order = {}, {}
       for _, row in ipairs(rows) do
         local key = eval.expr(cmd.expr, row_env(row, ctx))
+        -- display text only narrows candidates: ["a, b"] vs ["a", "b"] and
+        -- same-label links to different notes print alike but are not equal
         local id = value.to_display(key) .. "\0" .. value.typeof(key)
-        local bucket = buckets[id]
+        local cands = buckets[id] or {}
+        buckets[id] = cands
+        local bucket
+        for _, b in ipairs(cands) do
+          if value.eq(b.key, key) then
+            bucket = b
+            break
+          end
+        end
         if not bucket then
           bucket = { key = key, members = {} }
-          buckets[id] = bucket
+          cands[#cands + 1] = bucket
           order[#order + 1] = bucket
         end
         table.insert(bucket.members, row)

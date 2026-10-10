@@ -714,6 +714,8 @@ end
 check(res.ok and false_id, "false group key survives as the row ID")
 res = run('LIST WITHOUT ID file.name GROUP BY status')
 check(res.ok and res.data.groups[1].items[1].link == nil, "grouped LIST honours WITHOUT ID")
+res = run('TABLE length(rows) GROUP BY choice(priority = 1, ["a, b"], ["a", "b"])')
+check(res.ok and #res.data.rows == 2, "GROUP BY splits values that merely display alike")
 
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"

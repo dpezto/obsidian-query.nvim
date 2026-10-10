@@ -253,7 +253,7 @@ function M.build(abs_path, row, ctx)
     link = value.link(rel),
     size = stat.size or 0,
     mtime = value.date(mtime, "datetime"),
-    mday = value.date(mtime, "date"),
+    mday = value.date(value.day_start(mtime), "date"),
     day = day,
     tags = value.array(expand_tags(row.tags)),
     etags = value.array(vim.tbl_map(function(t)
@@ -273,7 +273,7 @@ function M.build(abs_path, row, ctx)
         local stat = vim.uv.fs_stat(abs_path)
         local ts = stat and stat.birthtime and stat.birthtime.sec or (stat and stat.ctime.sec) or 0
         rawset(self, "ctime", value.date(ts, "datetime"))
-        rawset(self, "cday", value.date(ts, "date"))
+        rawset(self, "cday", value.date(value.day_start(ts), "date"))
         return rawget(self, key)
       end
     end,

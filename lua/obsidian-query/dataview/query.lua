@@ -323,9 +323,14 @@ local function project(header, rows, ctx)
       end
       local id
       if not header.without_id then
-        id = (row.file and row.file.link ~= nil and value.typeof(row.file.link) == "link") and row.file.link
-          or (row.key ~= nil and row.key)
-          or NULL
+        -- explicit branches: a false group key must survive (and/or drops it)
+        if row.file and value.typeof(row.file.link) == "link" then
+          id = row.file.link
+        elseif row.key ~= nil then
+          id = row.key
+        else
+          id = NULL
+        end
       end
       out_rows[#out_rows + 1] = {
         id = id,
@@ -342,9 +347,13 @@ local function project(header, rows, ctx)
       for _, g in ipairs(rows) do
         local items = {}
         for _, member in ipairs(g.rows) do
+          local text
+          if header.expr then
+            text = eval.expr(header.expr, row_env(member, ctx))
+          end
           items[#items + 1] = {
-            link = member.file and member.file.link or NULL,
-            text = header.expr and eval.expr(header.expr, row_env(member, ctx)) or nil,
+            link = not header.without_id and (member.file and member.file.link or NULL) or nil,
+            text = text,
             path = member._path or "",
           }
         end
@@ -353,9 +362,13 @@ local function project(header, rows, ctx)
     else
       local items = {}
       for _, row in ipairs(rows) do
+        local text
+        if header.expr then
+          text = eval.expr(header.expr, row_env(row, ctx))
+        end
         items[#items + 1] = {
           link = not header.without_id and (row.file and row.file.link or NULL) or nil,
-          text = header.expr and eval.expr(header.expr, row_env(row, ctx)) or nil,
+          text = text,
           path = row._path or "",
         }
       end

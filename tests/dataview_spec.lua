@@ -704,6 +704,16 @@ vim.fn.delete(index_path)
 group = "audit"
 check(F.regexreplace(env, { '"foo"', "\\b(foo)", "$1" }) == '"foo"', "\\b adds no capture group")
 check(F.regexreplace(env, { "a foo b", "(?<=a )(foo)", "[$1]" }) == "a [foo] b", "lookaround adds no capture group")
+res = run("LIST WITHOUT ID false")
+check(res.ok and res.data.groups[1].items[1].text == false, "LIST WITHOUT ID keeps a false value")
+res = run("TABLE length(rows) GROUP BY priority = 1")
+local false_id = false
+for _, r in ipairs(res.data.rows) do
+  false_id = false_id or r.id == false
+end
+check(res.ok and false_id, "false group key survives as the row ID")
+res = run('LIST WITHOUT ID file.name GROUP BY status')
+check(res.ok and res.data.groups[1].items[1].link == nil, "grouped LIST honours WITHOUT ID")
 
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"

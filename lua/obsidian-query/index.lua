@@ -156,13 +156,15 @@ function M.get(ctx, cb)
       end
     end
     -- refresh stale supplements in batches off the fast path
+    local function fresh(s, e)
+      return s and s.mtime == e.mtime and s.mtime_nsec == e.mtime_nsec and s.size == e.size
+    end
     local stale = {}
     for path, row in pairs(rows) do
       local st = row.stat or row -- v3.16+ nests stats; older rows were flat
-      local mtime = st.mtime_sec or st.mtime
-      local s = sup[path]
-      if not s or s.mtime ~= mtime or s.mtime_nsec ~= st.mtime_nsec or s.size ~= st.size then
-        stale[#stale + 1] = { path = path, mtime = mtime, mtime_nsec = st.mtime_nsec, size = st.size }
+      local e = { path = path, mtime = st.mtime_sec or st.mtime, mtime_nsec = st.mtime_nsec, size = st.size }
+      if not fresh(sup[path], e) then
+        stale[#stale + 1] = e
       end
     end
     local i = 1
@@ -171,9 +173,12 @@ function M.get(ctx, cb)
       while i <= stop do
         local e = stale[i]
         i = i + 1
-        local data = extract_sup(e.path)
-        data.mtime, data.mtime_nsec, data.size = e.mtime, e.mtime_nsec, e.size
-        sup[e.path] = data
+        -- a concurrent request (another fence) may have refreshed it meanwhile
+        if not fresh(sup[e.path], e) then
+          local data = extract_sup(e.path)
+          data.mtime, data.mtime_nsec, data.size = e.mtime, e.mtime_nsec, e.size
+          sup[e.path] = data
+        end
       end
       if i <= #stale then
         vim.schedule(step)

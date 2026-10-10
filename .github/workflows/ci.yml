@@ -73,14 +73,3 @@ jobs:
           files: luacov.report.out
           disable_search: true
           fail_ci_if_error: false
-  release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
-        with:
-          release-type: simple

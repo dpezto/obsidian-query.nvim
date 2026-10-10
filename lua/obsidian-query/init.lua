@@ -223,6 +223,7 @@ local function mark_stale_on_change()
     require("obsidian.lsp.watchfiles").register_handler(function()
       mark_all_stale()
       rerender_all()
+      require("obsidian-query.inline").mark_stale()
     end)
   end)
 end

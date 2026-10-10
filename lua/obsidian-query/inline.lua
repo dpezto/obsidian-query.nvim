@@ -8,7 +8,9 @@ local idx ---@type table? cached obsidian-query.index result
 local idx_root ---@type string? vault the cached index belongs to
 local idx_stale, idx_pending = false, false
 local idx_gen, shown_gen = 0, 0
+local stale_gen = 0 -- bumped per invalidation: a request begun before one stays stale
 local request ---@type table? token of the in-flight index request
+local bufs = {} ---@type table<integer, true> buffers showing inline values
 local stale_au ---@type integer?
 local expr_cache = {} ---@type table<string, table|false> parsed ASTs
 local page_cache = {} ---@type table<string, {gen: integer, page: table}>
@@ -21,21 +23,38 @@ local function mark_stale_on_change()
     group = vim.api.nvim_create_augroup("obsidian_inline_stale", { clear = true }),
     pattern = "*.md",
     callback = function()
-      idx_stale = true
+      idx_stale, stale_gen = true, stale_gen + 1
     end,
   })
 end
 
+local function nudge()
+  for buf in pairs(bufs) do
+    if vim.api.nvim_buf_is_valid(buf) then
+      require("render-markdown.api").render({ buf = buf, event = "ObsidianInline" })
+    else
+      bufs[buf] = nil
+    end
+  end
+end
+
 -- nudge render-markdown until a parse pass has consumed the fresh index
-local function rerender(buf)
+local function rerender()
   local id = idx_gen
   require("obsidian-query.render").retry(function()
     return shown_gen >= id or idx_gen ~= id
-  end, function()
-    if vim.api.nvim_buf_is_valid(buf) then
-      require("render-markdown.api").render({ buf = buf, event = "ObsidianInline" })
-    end
-  end)
+  end, nudge)
+end
+
+---Notes changed (obsidian's file watcher: writes from nvim or outside):
+---refetch on the next parse, and drive one for every inline buffer.
+function M.mark_stale()
+  idx_stale, stale_gen = true, stale_gen + 1
+  if next(bufs) then
+    require("obsidian-query.render").retry(function()
+      return not idx_stale
+    end, nudge)
+  end
 end
 
 ---Drop the cached index (workspace switched): old-vault values must not
@@ -48,7 +67,7 @@ function M.invalidate()
   page_cache = {}
 end
 
-local function ensure_index(root, buf)
+local function ensure_index(root)
   if idx and idx_root ~= root then
     M.invalidate() -- different vault: never serve the old index
   end
@@ -57,7 +76,7 @@ local function ensure_index(root, buf)
   end
   if not idx_pending then
     idx_pending = true
-    local token = {}
+    local token, start_gen = {}, stale_gen
     request = token
     require("obsidian-query.index").get({ root = root }, function(result)
       if request ~= token then
@@ -65,10 +84,11 @@ local function ensure_index(root, buf)
       end
       idx_pending, request = false, nil
       if result then
-        idx, idx_root, idx_stale = result, root, false
+        -- a change that landed mid-request leaves the index stale: refetch
+        idx, idx_root, idx_stale = result, root, stale_gen ~= start_gen
         idx_gen = idx_gen + 1
         page_cache = {}
-        rerender(buf)
+        rerender()
       end
     end)
   end
@@ -129,9 +149,11 @@ function M.parse(ctx)
     end
   end
   if #spans == 0 then
+    bufs[ctx.buf] = nil
     return {}
   end
-  local index = ensure_index(root, ctx.buf)
+  bufs[ctx.buf] = true
+  local index = ensure_index(root)
   if not index then
     return {} -- index loading; rerender() will bring the results in
   end

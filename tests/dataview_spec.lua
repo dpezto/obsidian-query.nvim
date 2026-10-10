@@ -805,10 +805,10 @@ do
   for name, module in pairs(modules) do package.loaded[name] = module or nil end
 end
 
--- obsidian.nvim drops queued cache callbacks on a workspace switch: the
--- inline index request they strand must be retried.
+-- A write landing while the inline index request is in flight must leave the
+-- returned index stale, so the next parse asks again.
 do
-  group = "inline index reset"
+  group = "inline stale race"
   local inline = require("obsidian-query.inline")
   local core = require("obsidian-query")
   local saved_root, saved_get, saved_retry = core.buf_root, idx_mod.get, base.retry
@@ -817,9 +817,10 @@ do
   base.retry = function() end
   local path = ROOT .. "/Journal/2026-07-01.md"
   core.buf_root = function() return ROOT end
-  local calls = 0
-  idx_mod.get = function()
+  local calls, pending_cb = 0, nil
+  idx_mod.get = function(_, cb)
     calls = calls + 1
+    pending_cb = cb
   end
   local buf = vim.api.nvim_create_buf(true, false)
   vim.api.nvim_buf_set_name(buf, path)
@@ -837,9 +838,14 @@ do
   end
   inline.invalidate()
   check(#parse() == 0 and calls == 1, "first parse requests the index")
+  vim.api.nvim_exec_autocmds("BufWritePost", { buffer = buf })
+  pending_cb({ rows = INDEX, sup = SUP, inlinks = INLINKS })
+  local marks = parse()
+  check(#marks == 1 and marks[1].opts.virt_text[1][1] == "2026-07-01", "result renders")
+  check(calls == 2, "write during the request re-requests the index")
   inline.invalidate() -- workspace switch: obsidian.nvim drops the queued callback
   parse()
-  check(calls == 2, "a request stranded by a cache reset is retried")
+  check(calls == 3, "a request stranded by a cache reset is retried")
   inline.invalidate()
   vim.api.nvim_buf_delete(buf, { force = true })
   core.buf_root, idx_mod.get, base.retry = saved_root, saved_get, saved_retry

@@ -298,25 +298,32 @@ function M.usable_ramp(bg)
 	return kept
 end
 
+local heat_owned = {} ---@type table<string, integer> fg we last set, per group
 local function define_heat()
 	local normal = vim.api.nvim_get_hl(0, { name = "Normal" })
 	-- transparent background: assume the extreme so the floor still holds
 	local bg = normal.bg and ("#%06x"):format(normal.bg) or (vim.o.background == "light" and "#ffffff" or "#000000")
 	local ramp = M.usable_ramp(bg)
 	for i = 1, HEAT_STEPS do
-		local fg = sample(ramp, (i - 1) / (HEAT_STEPS - 1))
-		vim.api.nvim_set_hl(0, "ObsidianQueryHeat" .. i, { fg = fg, default = true })
+		local name = "ObsidianQueryHeat" .. i
+		-- replace our own (or cleared) definitions so a background flip without a
+		-- colorscheme reload recolours; a user override is left alone
+		local cur = vim.api.nvim_get_hl(0, { name = name, link = true })
+		if next(cur) == nil or (not cur.link and cur.fg == heat_owned[name]) then
+			local fg = sample(ramp, (i - 1) / (HEAT_STEPS - 1))
+			vim.api.nvim_set_hl(0, name, { fg = fg })
+			heat_owned[name] = vim.api.nvim_get_hl(0, { name = name }).fg
+		end
 	end
 	-- stacked over the day's heat colour: `reverse` paints that colour as the
 	-- cell's background, so today stands out without owning a colour itself
 	vim.api.nvim_set_hl(0, "ObsidianQueryToday", { reverse = true, bold = true, default = true })
 end
 define_heat()
-vim.api.nvim_create_autocmd({ "ColorScheme", "OptionSet" }, {
-	group = vim.api.nvim_create_augroup("obsidian_query_heat", { clear = true }),
-	pattern = { "*", "background" },
-	callback = define_heat,
-})
+local heat_group = vim.api.nvim_create_augroup("obsidian_query_heat", { clear = true })
+vim.api.nvim_create_autocmd("ColorScheme", { group = heat_group, callback = define_heat })
+-- a pattern list on a shared autocmd would apply "*" to OptionSet too
+vim.api.nvim_create_autocmd("OptionSet", { group = heat_group, pattern = "background", callback = define_heat })
 
 ---Heat group picker for one month: linear over that month's note counts.
 ---@param days table<integer, string[]>

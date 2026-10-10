@@ -155,6 +155,17 @@ check(run("[priority:3]"), "numeric prop")
 check(not run("[missing]"), "prop missing")
 check(run("ignore-case:(SIGNAL)"), "ignore-case:")
 
+---------------------------------------------------------------- audit regressions
+group = "audit"
+-- bare terms inside top-level booleans keep the filename fallback
+local needle = eval.note("/vault/Needle.md", "Needle.md", "body\n")
+local function runn(q)
+  return (eval.run(assert(parser.parse(q)), needle))
+end
+check(runn("Needle body"), "AND child matches the filename")
+check(runn("Needle OR absent"), "OR child matches the filename")
+check(not runn("-Needle"), "negated filename term excludes the note")
+
 ---------------------------------------------------------------- attachments
 -- non-md vault files are matchable by path/filename only (never read)
 group = "attachments"

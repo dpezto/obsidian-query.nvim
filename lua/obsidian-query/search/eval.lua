@@ -260,6 +260,10 @@ local function eval_scoped(ast, note, texts, case)
   elseif ast.k == "not" then
     local ok = eval_scoped(ast.kid, note, texts, case)
     return not ok, {}
+  elseif not texts then
+    -- unscoped (top-level boolean): each child keeps its own semantics, so
+    -- bare terms still fall back to the filename
+    return eval_node(ast, note, case)
   elseif ast.k == "word" or ast.k == "phrase" or ast.k == "regex" then
     return leaf_on_texts(ast, texts, case)
   elseif ast.k == "op" and (ast.name == "match-case" or ast.name == "ignore-case") then
@@ -378,7 +382,7 @@ end
 eval_node = function(ast, note, case)
   local k = ast.k
   if k == "and" or k == "or" or k == "not" then
-    return eval_scoped(ast, note, content_texts(note), case)
+    return eval_scoped(ast, note, nil, case)
   elseif k == "word" or k == "phrase" then
     -- bare terms match content or the filename (Obsidian unions both)
     local ok, locs = leaf_on_texts(ast, content_texts(note), case)

@@ -70,7 +70,7 @@ function M.check()
       -- v3.16+ nests file stats under `stat`; older rows carry a flat mtime
       if probe.stat == nil and probe.mtime == nil then
         bad = true
-        h.error("cache row missing \"stat\" — row schema drifted, page building will break")
+        h.error('cache row missing "stat" — row schema drifted, page building will break')
       end
       for _, key in ipairs({ "tags", "properties" }) do
         if probe[key] == nil then

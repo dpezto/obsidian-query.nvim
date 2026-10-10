@@ -45,10 +45,12 @@ end
 
 -- Tasks-plugin emoji shorthands -> field names (each followed by a date)
 local TASK_EMOJI = {
-  ["🗓️"] = "due", ["📅"] = "due",
+  ["🗓️"] = "due",
+  ["📅"] = "due",
   ["✅"] = "completion",
   ["➕"] = "created",
-  ["⏳"] = "scheduled", ["⌛"] = "scheduled",
+  ["⏳"] = "scheduled",
+  ["⌛"] = "scheduled",
   ["🛫"] = "start",
 }
 
@@ -109,8 +111,7 @@ function M.build_tasks(abs_path, cache_tasks, headers, rel)
       line = ct.line, -- cache rows store 1-indexed lines (cache/note.lua loops from 1)
       indent = ct.indent or 0,
       path = abs_path,
-      section = section
-          and value.link(rel, { subpath = section.text, kind = "header", display = section.text })
+      section = section and value.link(rel, { subpath = section.text, kind = "header", display = section.text })
         or value.link(rel),
       link = value.link(rel, section and { subpath = section.text, kind = "header" } or nil),
       tags = value.array(tags),
@@ -186,8 +187,7 @@ function M.build_lists(sup, tasks, abs_path, rel)
         line = li.line,
         indent = li.indent,
         path = abs_path,
-        section = section
-            and value.link(rel, { subpath = section.text, kind = "header", display = section.text })
+        section = section and value.link(rel, { subpath = section.text, kind = "header", display = section.text })
           or value.link(rel),
         link = value.link(rel, section and { subpath = section.text, kind = "header" } or nil),
       })

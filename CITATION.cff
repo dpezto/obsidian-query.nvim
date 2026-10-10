@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: obsidian-query.nvim
+abstract: Live Obsidian Search and Dataview queries inside Neovim.
+type: software
+authors:
+  - given-names: Dai
+    family-names: López Jacinto
+repository-code: "https://github.com/dpezto/obsidian-query.nvim"
+url: "https://github.com/dpezto/obsidian-query.nvim"
+license: MIT
+version: 0.1.1 # x-release-please-version
+date-released: "2026-09-14" # x-release-please-date

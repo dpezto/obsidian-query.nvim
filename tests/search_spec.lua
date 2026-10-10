@@ -170,9 +170,19 @@ ast = parser.parse("file:/Needle/")
 check(ast.k == "op" and ast.arg.k == "regex" and ast.arg.pat == "Needle", "op:/regex/ lexes a regex arg")
 check(runn("file:/Need(le)?/"), "op:/regex/ with parens evaluates")
 -- tilde fences hide tags and tasks; UTF-8 inline tags stay whole
-local fenced = eval.note("/vault/f.md", "f.md", table.concat({
-  "~~~~", "#hidden", "- [ ] sample", "~~~", "still fenced #hidden2", "~~~~", "#día visible",
-}, "\n"))
+local fenced = eval.note(
+  "/vault/f.md",
+  "f.md",
+  table.concat({
+    "~~~~",
+    "#hidden",
+    "- [ ] sample",
+    "~~~",
+    "still fenced #hidden2",
+    "~~~~",
+    "#día visible",
+  }, "\n")
+)
 local function runf(q)
   return (eval.run(assert(parser.parse(q)), fenced))
 end

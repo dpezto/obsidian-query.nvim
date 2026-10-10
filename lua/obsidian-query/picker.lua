@@ -165,18 +165,34 @@ local function select_open(title, items, _)
 end
 
 local BACKENDS = {
-  { name = "snacks", avail = function()
-    return _G.Snacks and Snacks.picker ~= nil
-  end, open = snacks_open },
-  { name = "telescope", avail = function()
-    return pcall(require, "telescope")
-  end, open = telescope_open },
-  { name = "fzf-lua", avail = function()
-    return pcall(require, "fzf-lua")
-  end, open = fzf_open },
-  { name = "select", avail = function()
-    return true
-  end, open = select_open },
+  {
+    name = "snacks",
+    avail = function()
+      return _G.Snacks and Snacks.picker ~= nil
+    end,
+    open = snacks_open,
+  },
+  {
+    name = "telescope",
+    avail = function()
+      return pcall(require, "telescope")
+    end,
+    open = telescope_open,
+  },
+  {
+    name = "fzf-lua",
+    avail = function()
+      return pcall(require, "fzf-lua")
+    end,
+    open = fzf_open,
+  },
+  {
+    name = "select",
+    avail = function()
+      return true
+    end,
+    open = select_open,
+  },
 }
 
 ---Resolve the configured backend to a name ("snacks"|"telescope"|"fzf-lua"|"select").

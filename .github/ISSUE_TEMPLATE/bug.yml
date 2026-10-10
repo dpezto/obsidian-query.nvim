@@ -1,0 +1,48 @@
+name: Bug report
+description: Something broke
+labels: [bug]
+body:
+  - type: input
+    id: nvim
+    attributes:
+      label: Neovim version
+      placeholder: "NVIM v0.11.2 (nvim --version)"
+    validations:
+      required: true
+  - type: input
+    id: obsidian
+    attributes:
+      label: obsidian.nvim version
+      placeholder: "commit or tag"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "macOS 15 / Ubuntu 24.04 / Windows 11"
+    validations:
+      required: true
+  - type: textarea
+    id: health
+    attributes:
+      label: ":checkhealth obsidian-query output"
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: >
+        The query or dataview block, plus the frontmatter, inline fields or
+        tasks of one note it should (or should not) match. Relevant non-default
+        plugin config if any.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected vs actual behavior
+    validations:
+      required: true

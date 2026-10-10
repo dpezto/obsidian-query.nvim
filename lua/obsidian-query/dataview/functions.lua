@@ -68,7 +68,10 @@ R.contains = function(_, args)
     return T(needle) == "string" and hay:lower():find(needle:lower(), 1, true) ~= nil
   elseif t == "array" then
     for _, el in ipairs(hay) do
-      if value.eq(el, needle) or (T(el) == "string" and T(needle) == "string" and el:lower():find(needle:lower(), 1, true)) then
+      if
+        value.eq(el, needle)
+        or (T(el) == "string" and T(needle) == "string" and el:lower():find(needle:lower(), 1, true))
+      then
         return true
       end
     end
@@ -501,14 +504,22 @@ end)
 
 -- Luxon token subset, longest-match scan; '...' quotes literals
 local FMT = {
-  { "yyyy", "%Y" }, { "yy", "%y" },
-  { "MMMM", "%B" }, { "MMM", "%b" }, { "MM", "%m" },
+  { "yyyy", "%Y" },
+  { "yy", "%y" },
+  { "MMMM", "%B" },
+  { "MMM", "%b" },
+  { "MM", "%m" },
   { "dd", "%d" },
-  { "HH", "%H" }, { "hh", "%I" },
-  { "mm", "%M" }, { "ss", "%S" },
-  { "EEEE", "%A" }, { "EEE", "%a" }, { "ccc", "%a" },
+  { "HH", "%H" },
+  { "hh", "%I" },
+  { "mm", "%M" },
+  { "ss", "%S" },
+  { "EEEE", "%A" },
+  { "EEE", "%a" },
+  { "ccc", "%a" },
   { "a", "%p" },
-  { "X", nil }, { "x", nil }, -- epoch handled inline
+  { "X", nil },
+  { "x", nil }, -- epoch handled inline
 }
 R.dateformat = vectorize(function(_, args)
   if T(args[1]) ~= "date" or T(args[2]) ~= "string" then
@@ -539,7 +550,8 @@ R.dateformat = vectorize(function(_, args)
         end
       end
       if not matched then
-        local single = { M = "month", d = "day", H = "hour", h = "hour", m = "minute", s = "second", q = "quarter", o = "dayofyear" }
+        local single =
+          { M = "month", d = "day", H = "hour", h = "hour", m = "minute", s = "second", q = "quarter", o = "dayofyear" }
         local ch = fmt:sub(i, i)
         if single[ch] then
           out[#out + 1] = tostring(d[single[ch]])

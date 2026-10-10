@@ -14,28 +14,62 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: reviewdog/action-actionlint@13465d022aa41c282f730be17574b5ce692d0186 # v1
-  test:
+  stylua:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: JohnnyMorganz/stylua-action@76fd70c03e6340ceaf673366712db9b20560b402 # v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --check lua tests
+  test:
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        # Linux only: the plugin is pure Lua over Neovim's own APIs, and the
+        # drift that breaks it is Neovim's, which the nightly leg covers. The
+        # matrix keeps `os` so a platform can be added without renaming the
+        # checks that branch protection requires.
+        os: [ubuntu-latest]
         neovim: [stable, nightly]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # tests/picker_spec.lua drives real Snacks windows. Pinned to a release so
+      # a snacks.nvim change cannot fail an unrelated PR.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: folke/snacks.nvim
+          ref: e6fd58c82f2f3fcddd3fe81703d47d6d48fc7b9f # v2.31.0
+          path: .deps/snacks.nvim
+          persist-credentials: false
       - uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1
         with:
           neovim: true
           version: ${{ matrix.neovim }}
-      - run: nvim -l tests/dataview_spec.lua
-      - run: nvim -l tests/search_spec.lua
-  release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+      - if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.neovim == 'stable') }}
+        name: test
+        run: make test picker SNACKS=.deps/snacks.nvim
+      # The stable leg runs the same tests under luacov (Neovim is LuaJIT = Lua 5.1)
+      - if: matrix.os == 'ubuntu-latest' && matrix.neovim == 'stable'
+        name: test with coverage
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq luarocks lua5.1 liblua5.1-0-dev
+          luarocks --lua-version 5.1 --tree "$HOME/.luarocks" install luacov
+          luarocks --lua-version 5.1 --tree "$HOME/.luarocks" install luacov-reporter-lcov
+          export LUA_PATH="$HOME/.luarocks/share/lua/5.1/?.lua;$HOME/.luarocks/share/lua/5.1/?/init.lua;;"
+          COVERAGE=1 make test picker SNACKS=.deps/snacks.nvim
+          "$HOME/.luarocks/bin/luacov" -r lcov
+          sed -i "s|^SF:$GITHUB_WORKSPACE/|SF:|" luacov.report.out
+      - if: matrix.os == 'ubuntu-latest' && matrix.neovim == 'stable'
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         with:
-          release-type: simple
+          # Tokenless uploads are accepted for pull requests but rejected on
+          # pushes; an absent secret degrades to PR-only coverage rather than
+          # failing the job.
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: luacov.report.out
+          disable_search: true
+          fail_ci_if_error: false

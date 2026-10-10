@@ -1,0 +1,19 @@
+coverage:
+  status:
+    # Nothing blocks a merge; the targets only pick the icon the status shows.
+    project:
+      default:
+        informational: true
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        informational: true
+
+comment:
+  # Comment only when there is something to act on.
+  require_changes: "coverage_drop OR uncovered_patch"
+  layout: "condensed_header, diff, condensed_files, condensed_footer"
+
+ignore:
+  - "tests/**"

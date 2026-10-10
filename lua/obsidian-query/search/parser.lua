@@ -249,9 +249,15 @@ function M.has_content(ast)
     return false -- negated terms produce no display lines
   elseif ast.k == "op" then
     local n = ast.name
-    return n == "content" or n == "line" or n == "section" or n == "block"
-      or n == "task" or n == "task-todo" or n == "task-done"
-      or n == "match-case" or n == "ignore-case"
+    return n == "content"
+      or n == "line"
+      or n == "section"
+      or n == "block"
+      or n == "task"
+      or n == "task-todo"
+      or n == "task-done"
+      or n == "match-case"
+      or n == "ignore-case"
   end
   return false
 end

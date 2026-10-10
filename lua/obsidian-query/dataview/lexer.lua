@@ -10,10 +10,23 @@ local M = {}
 
 local TWO = { ["!="] = true, ["<="] = true, [">="] = true, ["=>"] = true }
 local ONE = {
-  ["+"] = true, ["-"] = true, ["*"] = true, ["/"] = true, ["%"] = true,
-  ["="] = true, ["<"] = true, [">"] = true, ["&"] = true, ["|"] = true,
-  ["!"] = true, ["("] = true, [")"] = true, ["["] = true, ["]"] = true,
-  [","] = true, ["."] = true,
+  ["+"] = true,
+  ["-"] = true,
+  ["*"] = true,
+  ["/"] = true,
+  ["%"] = true,
+  ["="] = true,
+  ["<"] = true,
+  [">"] = true,
+  ["&"] = true,
+  ["|"] = true,
+  ["!"] = true,
+  ["("] = true,
+  [")"] = true,
+  ["["] = true,
+  ["]"] = true,
+  [","] = true,
+  ["."] = true,
   -- only meaningful inside date(...) time literals; a stray ':' elsewhere
   -- becomes a parse error, which is the right message anyway
   [":"] = true,
@@ -110,8 +123,16 @@ function M.tokenize(src)
 end
 
 local DATE_KEYWORDS = {
-  now = true, today = true, tomorrow = true, yesterday = true,
-  sow = true, eow = true, som = true, eom = true, soy = true, eoy = true,
+  now = true,
+  today = true,
+  tomorrow = true,
+  yesterday = true,
+  sow = true,
+  eow = true,
+  som = true,
+  eom = true,
+  soy = true,
+  eoy = true,
 }
 
 ---Contextual date literal: called by the parser inside date(...) / dur(...).

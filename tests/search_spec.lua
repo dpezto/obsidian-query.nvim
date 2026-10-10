@@ -165,6 +165,10 @@ end
 check(runn("Needle body"), "AND child matches the filename")
 check(runn("Needle OR absent"), "OR child matches the filename")
 check(not runn("-Needle"), "negated filename term excludes the note")
+-- regex glued to an operator is still a regex
+ast = parser.parse("file:/Needle/")
+check(ast.k == "op" and ast.arg.k == "regex" and ast.arg.pat == "Needle", "op:/regex/ lexes a regex arg")
+check(runn("file:/Need(le)?/"), "op:/regex/ with parens evaluates")
 
 ---------------------------------------------------------------- attachments
 -- non-md vault files are matchable by path/filename only (never read)

@@ -1,7 +1,8 @@
 -- Vault index for the dataview engine.
 --
 -- Primary data: obsidian.nvim's cache rows
---   { mtime, size, aliases[], tags[], properties, links_out[], tasks[] }.
+--   { stat = {mtime_sec, mtime_nsec, size}, aliases[], tags[], properties,
+--     links_out[], tasks[] } (pre-v3.16 rows keep mtime/mtime_nsec/size flat).
 -- Supplement (built here, mtime-keyed per note, in-memory):
 --   fields  : inline `Key:: value` fields (full-line and [key:: v]/(key:: v))
 --   headers : { {line, level, text} } (1-indexed lines)
@@ -42,23 +43,43 @@ local function read_starred(root)
 end
 M._read_starred = read_starred -- test hook
 
+---Code-fence tracking (CommonMark: ``` or ~~~, 3+ long; closed only by the
+---same char at least as long, nothing else on the line).
+---@param line string
+---@param open string? fence marker currently open, nil outside fences
+---@return string? open marker after this line
+function M.fence(line, open)
+  local marker = line:match("^%s*(```+)") or line:match("^%s*(~~~+)")
+  if not open then
+    return marker
+  end
+  if marker and marker:sub(1, 1) == open:sub(1, 1) and #marker >= #open and line:match("^%s*[`~]+%s*$") then
+    return nil
+  end
+  return open
+end
+
 local function extract_sup(path)
   local fd = io.open(path, "r")
   if not fd then
     return { fields = {}, headers = {}, lists = {} }
   end
   local fields, headers, lists = {}, {}, {}
-  local lnum, in_fence, in_fm = 0, false, false
+  local lnum, fence, in_fm = 0, nil, false
   for line in fd:lines() do
     lnum = lnum + 1
+    local body = false
     -- frontmatter delimiters: YAML `- item` lines must not count as lists
     if lnum == 1 and line == "---" then
       in_fm = true
     elseif in_fm and (line:match("^%-%-%-%s*$") or line:match("^%.%.%.%s*$")) then
       in_fm = false
-    elseif line:match("^%s*```") then
-      in_fence = not in_fence
-    elseif not in_fence and not in_fm then
+    elseif not in_fm then
+      local was_fence = fence
+      fence = M.fence(line, fence)
+      body = not was_fence and not fence
+    end
+    if body then
       local hashes, text = line:match("^(#+)%s+(.*)$")
       if hashes then
         headers[#headers + 1] = { line = lnum, level = #hashes, text = text }
@@ -105,11 +126,18 @@ local function make_resolver(rows)
     by_name[vim.fn.fnamemodify(path, ":t:r"):lower()] = path
     by_name[vim.fn.fnamemodify(path, ":t"):lower()] = path
   end
-  return function(target, root)
+  ---@param source string? linking note; markdown links resolve against its folder first
+  return function(target, root, source)
     if not target or target == "" then
       return nil
     end
     target = target:gsub("#.*$", ""):gsub("%s+$", "")
+    if source then
+      local rel = vim.fs.normalize(vim.fs.dirname(source) .. "/" .. target)
+      if rows[rel] or rows[rel .. ".md"] then
+        return rows[rel] and rel or (rel .. ".md")
+      end
+    end
     local direct = root .. "/" .. target
     if rows[direct] or rows[direct .. ".md"] then
       return rows[direct] and direct or (direct .. ".md")
@@ -128,7 +156,7 @@ function M.get(ctx, cb)
   end
   -- the cache holds only the ACTIVE vault; a buffer from another workspace
   -- must not be re-evaluated against it (results would empty out)
-  local active = _G.Obsidian and Obsidian.workspace and vim.fs.normalize(tostring(Obsidian.workspace.path))
+  local active = _G.Obsidian and Obsidian.dir and vim.fs.normalize(tostring(Obsidian.dir))
   if active and vim.fs.normalize(ctx.root) ~= active then
     cb(nil, "workspace not active", true)
     return
@@ -147,7 +175,7 @@ function M.get(ctx, cb)
     local inlinks = {}
     for path, row in pairs(rows) do
       for _, l in ipairs(row.links_out or {}) do
-        local target = resolve(l.target, ctx.root)
+        local target = resolve(l.target, ctx.root, l.kind == "markdown" and path or nil)
         if target then
           inlinks[target] = inlinks[target] or {}
           table.insert(inlinks[target], path)
@@ -155,11 +183,15 @@ function M.get(ctx, cb)
       end
     end
     -- refresh stale supplements in batches off the fast path
+    local function fresh(s, e)
+      return s and s.mtime == e.mtime and s.mtime_nsec == e.mtime_nsec and s.size == e.size
+    end
     local stale = {}
     for path, row in pairs(rows) do
-      local s = sup[path]
-      if not s or s.mtime ~= row.mtime or s.mtime_nsec ~= row.mtime_nsec or s.size ~= row.size then
-        stale[#stale + 1] = { path = path, mtime = row.mtime, mtime_nsec = row.mtime_nsec, size = row.size }
+      local st = row.stat or row -- v3.16+ nests stats; older rows were flat
+      local e = { path = path, mtime = st.mtime_sec or st.mtime, mtime_nsec = st.mtime_nsec, size = st.size }
+      if not fresh(sup[path], e) then
+        stale[#stale + 1] = e
       end
     end
     local i = 1
@@ -168,9 +200,12 @@ function M.get(ctx, cb)
       while i <= stop do
         local e = stale[i]
         i = i + 1
-        local data = extract_sup(e.path)
-        data.mtime, data.mtime_nsec, data.size = e.mtime, e.mtime_nsec, e.size
-        sup[e.path] = data
+        -- a concurrent request (another fence) may have refreshed it meanwhile
+        if not fresh(sup[e.path], e) then
+          local data = extract_sup(e.path)
+          data.mtime, data.mtime_nsec, data.size = e.mtime, e.mtime_nsec, e.size
+          sup[e.path] = data
+        end
       end
       if i <= #stale then
         vim.schedule(step)

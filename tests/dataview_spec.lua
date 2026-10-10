@@ -604,13 +604,15 @@ check(sup2.fields.single == "uno", "single key stays scalar")
 -- list extraction: bullets and numbered outside fences/frontmatter only
 local listmd = tmp .. "/lists.md"
 fd = io.open(listmd, "w")
-fd:write("---\ntags:\n  - yaml-item\n---\n# H\n- uno\n  - dos\n3) tres\n```\n- fenced\n```\n- [ ] box\n")
+fd:write("---\ntags:\n  - yaml-item\n---\n# H\n- uno\n  - dos\n3) tres\n```\n- fenced\n```\n"
+  .. "~~~~\n- tilde\n# not a heading\nfake:: field\n~~~\n~~~~\n- [ ] box\n")
 fd:close()
 local sup3 = idx_mod._extract_sup(listmd)
 check(#sup3.lists == 4, "yaml + fenced bullets excluded, box included")
 check(sup3.lists[1].text == "uno" and sup3.lists[2].indent == 2, "list text + indent")
 check(sup3.lists[3].text == "tres", "numbered list item")
 check(sup3.lists[4].text == "[ ] box", "checkbox line still recorded (paired with its task by line)")
+check(#sup3.headers == 1 and sup3.fields.fake == nil, "~~~ fences hide headings and fields")
 vim.fn.delete(tmp, "rf")
 
 ---------------------------------------------------------------- task toggle
@@ -676,7 +678,8 @@ vim.fn.delete(task_path)
 -- Production index path must retain lists and use the cache's full timestamp.
 local index_path = vim.fn.tempname() .. ".md"
 local index_root = vim.fs.dirname(index_path)
-local rows = { [index_path] = { mtime = 10, mtime_nsec = 1, size = 12, tasks = {} } }
+-- obsidian.nvim v3.16 row layout: stats nested under `stat`
+local rows = { [index_path] = { stat = { mtime_sec = 10, mtime_nsec = 1, size = 12 }, tasks = {} } }
 local saved_cache, saved_obsidian = package.loaded["obsidian.cache"], _G.Obsidian
 _G.Obsidian = nil
 package.loaded["obsidian.cache"] = {
@@ -689,11 +692,51 @@ vim.fn.writefile({ "- first" }, index_path)
 idx_mod.get({ root = index_root }, function(result) indexed = result end)
 check(indexed.sup[index_path].lists and indexed.sup[index_path].lists[1].text == "first", "index retains extracted lists")
 vim.fn.writefile({ "- other" }, index_path)
-rows[index_path].mtime_nsec = 2
+rows[index_path].stat.mtime_nsec = 2
 idx_mod.get({ root = index_root }, function(result) indexed = result end)
 check(indexed.sup[index_path].lists[1].text == "other", "same-second edit refreshes supplement")
+local spage = page_mod.build(index_path, rows[index_path], { root = index_root })
+check(spage.file.size == 12 and spage.file.mtime.ts == 10, "page reads nested stat (size, mtime)")
+-- relative markdown links resolve against the linking note's folder first
+local rel_root = "/relvault"
+rows = {
+  [rel_root .. "/peer.md"] = { stat = {} },
+  [rel_root .. "/sub/peer.md"] = { stat = {} },
+  [rel_root .. "/sub/source.md"] = { stat = {}, links_out = { { target = "peer.md", kind = "markdown" } } },
+}
+idx_mod.get({ root = rel_root }, function(result) indexed = result end)
+check(indexed.inlinks[rel_root .. "/sub/peer.md"] and not indexed.inlinks[rel_root .. "/peer.md"],
+  "markdown link resolves to the sibling note")
+local out_res = query.run("LIST FROM outgoing([[sub/source]])", { index = rows, root = rel_root })
+check(out_res.ok and #out_res.data.groups[1].items == 1 and out_res.data.groups[1].items[1].path == rel_root .. "/sub/peer.md",
+  "outgoing() resolves relative markdown targets")
 package.loaded["obsidian.cache"], _G.Obsidian = saved_cache, saved_obsidian
 vim.fn.delete(index_path)
+
+---------------------------------------------------------------- audit regressions
+group = "audit"
+check(ev("file.mday = date(2026-07-01)") == true, "file.mday is a day value (midnight)")
+local tomorrow = ev("date(tomorrow)")
+check(tomorrow.hour == 0 and tomorrow.day == 29, "date(tomorrow) is next local midnight")
+check(ev("date(eom)").day == 31 and ev("date(eom)").hour == 0, "date(eom) is the month's last midnight")
+check(ev('length(unique([1, 1, "1", date(2026-07-01), date(2026-07-01), [[a]], [[A]], [1], [1]]))') == 5,
+  "unique() dedupes scalars, dates, links and arrays")
+check(F.regexreplace(env, { '"foo"', "\\b(foo)", "$1" }) == '"foo"', "\\b adds no capture group")
+check(F.regexreplace(env, { "a foo b", "(?<=a )(foo)", "[$1]" }) == "a [foo] b", "lookaround adds no capture group")
+res = run('TABLE x FROM "Journal" FLATTEN [] AS x')
+check(res.ok and #res.data.rows == 0, "FLATTEN [] yields no rows")
+res = run("LIST WITHOUT ID false")
+check(res.ok and res.data.groups[1].items[1].text == false, "LIST WITHOUT ID keeps a false value")
+res = run("TABLE length(rows) GROUP BY priority = 1")
+local false_id = false
+for _, r in ipairs(res.data.rows) do
+  false_id = false_id or r.id == false
+end
+check(res.ok and false_id, "false group key survives as the row ID")
+res = run('LIST WITHOUT ID file.name GROUP BY status')
+check(res.ok and res.data.groups[1].items[1].link == nil, "grouped LIST honours WITHOUT ID")
+res = run('TABLE length(rows) GROUP BY choice(priority = 1, ["a, b"], ["a", "b"])')
+check(res.ok and #res.data.rows == 2, "GROUP BY splits values that merely display alike")
 
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"
@@ -754,11 +797,12 @@ do
   vim.api.nvim_set_current_buf(note)
   local lang, body = { text = "dataview" }, { text = "TASK WHERE !completed" }
   local block = { range = function() return 0, 0, 3, 0 end }
+  local fence_on = true
   vim.treesitter.query.parse = function()
     return { captures = { "lang", "body", "block" }, iter_matches = function()
       local done = false
       return function()
-        if not done then
+        if not done and fence_on then
           done = true
           return 1, { { lang }, { body }, { block } }
         end
@@ -767,8 +811,8 @@ do
   end
   vim.treesitter.get_node_text = function(node) return node.text end
   package.loaded["obsidian-query.highlight"] = { attach = function() end }
-  package.loaded["obsidian.api"] = { find_workspace = function() return { path = ROOT } end }
-  _G.Obsidian = { workspace = { path = ROOT } }
+  package.loaded["obsidian.api"] = { find_workspace = function() return { path = ROOT, root = ROOT } end }
+  _G.Obsidian = { workspace = { path = ROOT, root = ROOT }, dir = ROOT }
   local changed
   package.loaded["obsidian.lsp.watchfiles"] = { register_handler = function(cb) changed = cb end }
   local rows = vim.deepcopy(INDEX)
@@ -794,12 +838,74 @@ do
   check(count == "1 tasks", "refresh skipped while picker was open")
   vim.api.nvim_set_current_buf(note)
   check(vim.wait(200, function() return count == "0 tasks" end), "closing picker refreshes remaining count")
+  local fetches = 0
+  idx_mod.get = function(_, cb)
+    fetches = fetches + 1
+    cb({ rows = rows, sup = SUP, inlinks = INLINKS })
+  end
+  vim.api.nvim_set_current_buf(picker_buf)
+  vim.api.nvim_set_current_buf(note)
+  vim.wait(20, function() return false end)
+  check(fetches == 0, "entering an unchanged note reruns no query")
+  fence_on = false
+  core.parse({ buf = note })
+  fence_on = true
+  local before = fetches
+  draw()
+  check(fetches == before + 1, "a fence gone from the buffer releases its cache entry")
   vim.api.nvim_del_augroup_by_name("obsidian_query_stale")
   vim.api.nvim_buf_delete(picker_buf, { force = true })
   vim.api.nvim_buf_delete(note, { force = true })
   vim.treesitter.query.parse, vim.treesitter.get_node_text = saved_ts, saved_text
   base.retry, idx_mod.get, _G.Obsidian = saved_retry, saved_get, saved_ob
   for name, module in pairs(modules) do package.loaded[name] = module or nil end
+end
+
+-- A write landing while the inline index request is in flight must leave the
+-- returned index stale, so the next parse asks again.
+do
+  group = "inline stale race"
+  local inline = require("obsidian-query.inline")
+  local core = require("obsidian-query")
+  local saved_root, saved_get, saved_retry = core.buf_root, idx_mod.get, base.retry
+  local saved_rm = package.loaded["render-markdown.api"]
+  package.loaded["render-markdown.api"] = { render = function() end }
+  base.retry = function() end
+  local path = ROOT .. "/Journal/2026-07-01.md"
+  core.buf_root = function() return ROOT end
+  local calls, pending_cb = 0, nil
+  idx_mod.get = function(_, cb)
+    calls = calls + 1
+    pending_cb = cb
+  end
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(buf, path)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "x `= file.name` y" })
+  local function parse()
+    local ltree = vim.treesitter.get_parser(buf, "markdown")
+    ltree:parse(true)
+    local marks
+    ltree:for_each_tree(function(tree, lt)
+      if lt:lang() == "markdown_inline" then
+        marks = inline.parse({ buf = buf, root = tree:root() })
+      end
+    end)
+    return marks
+  end
+  inline.invalidate()
+  check(#parse() == 0 and calls == 1, "first parse requests the index")
+  vim.api.nvim_exec_autocmds("BufWritePost", { buffer = buf })
+  pending_cb({ rows = INDEX, sup = SUP, inlinks = INLINKS })
+  local marks = parse()
+  check(#marks == 1 and marks[1].opts.virt_text[1][1] == "2026-07-01", "result renders")
+  check(calls == 2, "write during the request re-requests the index")
+  inline.invalidate() -- workspace switch: obsidian.nvim drops the queued callback
+  parse()
+  check(calls == 3, "a request stranded by a cache reset is retried")
+  inline.invalidate()
+  vim.api.nvim_buf_delete(buf, { force = true })
+  core.buf_root, idx_mod.get, base.retry = saved_root, saved_get, saved_retry
+  package.loaded["render-markdown.api"] = saved_rm
 end
 
 io.write(("all %d checks passed\n"):format(n_ok))

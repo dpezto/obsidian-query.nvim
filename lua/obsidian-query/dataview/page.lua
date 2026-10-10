@@ -84,7 +84,8 @@ function M.build_tasks(abs_path, cache_tasks, headers, rel)
       end
     end
     local tags = {}
-    for tag in (ct.text or ""):gmatch("#([%w_][%w_/%-]*)") do
+    -- bytes >= 0x80 are UTF-8 sequence parts: #día is one tag, not #d
+    for tag in (ct.text or ""):gmatch("#([%w_\128-\255][%w_/%-\128-\255]*)") do
       tags[#tags + 1] = "#" .. tag:lower()
     end
     -- inline fields on the task: [due:: 2026-08-01] / (key:: v) + emoji dates
@@ -240,6 +241,9 @@ function M.build(abs_path, row, ctx)
   end
 
   local tasks = M.build_tasks(abs_path, row.tasks, sup.headers or {}, rel)
+  -- obsidian.nvim v3.16+ nests file stats under row.stat; older rows were flat
+  local stat = row.stat or row
+  local mtime = stat.mtime_sec or stat.mtime or 0
 
   page.file = setmetatable({
     name = name,
@@ -247,9 +251,9 @@ function M.build(abs_path, row, ctx)
     path = rel,
     ext = vim.fn.fnamemodify(rel, ":e"),
     link = value.link(rel),
-    size = row.size or 0,
-    mtime = value.date(row.mtime or 0, "datetime"),
-    mday = value.date(row.mtime or 0, "date"),
+    size = stat.size or 0,
+    mtime = value.date(mtime, "datetime"),
+    mday = value.date(value.day_start(mtime), "date"),
     day = day,
     tags = value.array(expand_tags(row.tags)),
     etags = value.array(vim.tbl_map(function(t)
@@ -269,7 +273,7 @@ function M.build(abs_path, row, ctx)
         local stat = vim.uv.fs_stat(abs_path)
         local ts = stat and stat.birthtime and stat.birthtime.sec or (stat and stat.ctime.sec) or 0
         rawset(self, "ctime", value.date(ts, "datetime"))
-        rawset(self, "cday", value.date(ts, "date"))
+        rawset(self, "cday", value.date(value.day_start(ts), "date"))
         return rawget(self, key)
       end
     end,

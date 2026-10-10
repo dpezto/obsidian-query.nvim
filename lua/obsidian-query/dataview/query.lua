@@ -16,10 +16,17 @@ local NULL = value.NULL
 
 ---------------------------------------------------------------- FROM
 
-local function resolve_link_path(raw, ctx)
+---@param source string? linking note; markdown links resolve against its folder first
+local function resolve_link_path(raw, ctx, source)
   local target = vim.trim(raw:gsub("|.*$", ""):gsub("#.*$", ""))
   if target == "" then
     return ctx.this_path
+  end
+  if source then
+    local rel = vim.fs.normalize(vim.fs.dirname(source) .. "/" .. target)
+    if ctx.index[rel] or ctx.index[rel .. ".md"] then
+      return ctx.index[rel] and rel or (rel .. ".md")
+    end
   end
   local direct = ctx.root .. "/" .. target
   if ctx.index[direct] then
@@ -75,7 +82,7 @@ local function source_set(src, ctx)
     local row = target and ctx.index[target]
     for _, l in ipairs(row and row.links_out or {}) do
       if l.target and l.target ~= "" then
-        local p = resolve_link_path(l.target, ctx)
+        local p = resolve_link_path(l.target, ctx, l.kind == "markdown" and target or nil)
         if p then
           out[p] = true
         end
@@ -254,11 +261,21 @@ local function run_commands(rows, cmds, ctx)
       local buckets, order = {}, {}
       for _, row in ipairs(rows) do
         local key = eval.expr(cmd.expr, row_env(row, ctx))
+        -- display text only narrows candidates: ["a, b"] vs ["a", "b"] and
+        -- same-label links to different notes print alike but are not equal
         local id = value.to_display(key) .. "\0" .. value.typeof(key)
-        local bucket = buckets[id]
+        local cands = buckets[id] or {}
+        buckets[id] = cands
+        local bucket
+        for _, b in ipairs(cands) do
+          if value.eq(b.key, key) then
+            bucket = b
+            break
+          end
+        end
         if not bucket then
           bucket = { key = key, members = {} }
-          buckets[id] = bucket
+          cands[#cands + 1] = bucket
           order[#order + 1] = bucket
         end
         table.insert(bucket.members, row)
@@ -282,12 +299,9 @@ local function run_commands(rows, cmds, ctx)
       for _, row in ipairs(rows) do
         local v = eval.expr(cmd.expr, row_env(row, ctx))
         if value.typeof(v) == "array" then
-          if #v == 0 then
-            out[#out + 1] = overlay(row, { [alias] = NULL })
-          else
-            for _, el in ipairs(v) do
-              out[#out + 1] = overlay(row, { [alias] = el })
-            end
+          -- an empty array yields no rows (Dataview semantics)
+          for _, el in ipairs(v) do
+            out[#out + 1] = overlay(row, { [alias] = el })
           end
         else
           out[#out + 1] = overlay(row, { [alias] = v })
@@ -323,9 +337,14 @@ local function project(header, rows, ctx)
       end
       local id
       if not header.without_id then
-        id = (row.file and row.file.link ~= nil and value.typeof(row.file.link) == "link") and row.file.link
-          or (row.key ~= nil and row.key)
-          or NULL
+        -- explicit branches: a false group key must survive (and/or drops it)
+        if row.file and value.typeof(row.file.link) == "link" then
+          id = row.file.link
+        elseif row.key ~= nil then
+          id = row.key
+        else
+          id = NULL
+        end
       end
       out_rows[#out_rows + 1] = {
         id = id,
@@ -342,9 +361,13 @@ local function project(header, rows, ctx)
       for _, g in ipairs(rows) do
         local items = {}
         for _, member in ipairs(g.rows) do
+          local text
+          if header.expr then
+            text = eval.expr(header.expr, row_env(member, ctx))
+          end
           items[#items + 1] = {
-            link = member.file and member.file.link or NULL,
-            text = header.expr and eval.expr(header.expr, row_env(member, ctx)) or nil,
+            link = not header.without_id and (member.file and member.file.link or NULL) or nil,
+            text = text,
             path = member._path or "",
           }
         end
@@ -353,9 +376,13 @@ local function project(header, rows, ctx)
     else
       local items = {}
       for _, row in ipairs(rows) do
+        local text
+        if header.expr then
+          text = eval.expr(header.expr, row_env(row, ctx))
+        end
         items[#items + 1] = {
           link = not header.without_id and (row.file and row.file.link or NULL) or nil,
-          text = header.expr and eval.expr(header.expr, row_env(row, ctx)) or nil,
+          text = text,
           path = row._path or "",
         }
       end

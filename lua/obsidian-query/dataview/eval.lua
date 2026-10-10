@@ -63,33 +63,29 @@ end
 
 local function date_literal(lit, env)
   local now = env.now or value.date(os.time(), "datetime")
-  local function day_start(ts)
-    local t = os.date("*t", math.floor(ts))
-    return os.time({ year = t.year, month = t.month, day = t.day, hour = 0, min = 0, sec = 0 })
-  end
+  local day_start = value.day_start
   if lit == "now" then
     return now
   elseif lit == "today" then
     return value.date(day_start(now.ts), "date")
   elseif lit == "tomorrow" then
-    return value.date(day_start(now.ts) + 86400, "date")
+    return value.date(day_start(now.ts, 1), "date")
   elseif lit == "yesterday" then
-    return value.date(day_start(now.ts) - 86400, "date")
+    return value.date(day_start(now.ts, -1), "date")
   elseif lit == "sow" then
     local t = os.date("*t", math.floor(now.ts))
     local wd = (t.wday + 5) % 7 -- 0 = Monday
-    return value.date(day_start(now.ts) - wd * 86400, "date")
+    return value.date(day_start(now.ts, -wd), "date")
   elseif lit == "eow" then
     local t = os.date("*t", math.floor(now.ts))
     local wd = (t.wday + 5) % 7
-    return value.date(day_start(now.ts) + (6 - wd) * 86400, "date")
+    return value.date(day_start(now.ts, 6 - wd), "date")
   elseif lit == "som" then
     local t = os.date("*t", math.floor(now.ts))
     return value.date(os.time({ year = t.year, month = t.month, day = 1, hour = 0 }), "date")
   elseif lit == "eom" then
     local t = os.date("*t", math.floor(now.ts))
-    local nm = os.time({ year = t.year, month = t.month + 1, day = 1, hour = 0 })
-    return value.date(nm - 86400, "date")
+    return value.date(os.time({ year = t.year, month = t.month + 1, day = 0, hour = 0 }), "date")
   elseif lit == "soy" then
     local t = os.date("*t", math.floor(now.ts))
     return value.date(os.time({ year = t.year, month = 1, day = 1, hour = 0 }), "date")

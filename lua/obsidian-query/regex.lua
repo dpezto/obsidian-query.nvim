@@ -15,7 +15,7 @@ function M.to_vim(pat)
     if c == "\\" then
       local nxt = pat:sub(i + 1, i + 1)
       if nxt == "b" then
-        out[#out + 1] = "(<|>)" -- either word boundary
+        out[#out + 1] = "%(<|>)" -- either word boundary; non-capturing keeps $N aligned
       elseif nxt == "B" then
         return nil
       else
@@ -45,7 +45,7 @@ function M.to_vim(pat)
       if look then
         local suffix = ({ ["="] = ")@=", ["!"] = ")@!", ["<="] = ")@<=", ["<!"] = ")@<!" })[look]
         stack[#stack + 1] = suffix
-        out[#out + 1] = "("
+        out[#out + 1] = "%(" -- lookarounds capture nothing in PCRE either
         i = i + 2 + #look
       elseif pat:sub(i, i + 2) == "(?:" then
         stack[#stack + 1] = ")"

@@ -155,6 +155,31 @@ check(run("[priority:3]"), "numeric prop")
 check(not run("[missing]"), "prop missing")
 check(run("ignore-case:(SIGNAL)"), "ignore-case:")
 
+---------------------------------------------------------------- audit regressions
+group = "audit"
+-- bare terms inside top-level booleans keep the filename fallback
+local needle = eval.note("/vault/Needle.md", "Needle.md", "body\n")
+local function runn(q)
+  return (eval.run(assert(parser.parse(q)), needle))
+end
+check(runn("Needle body"), "AND child matches the filename")
+check(runn("Needle OR absent"), "OR child matches the filename")
+check(not runn("-Needle"), "negated filename term excludes the note")
+-- regex glued to an operator is still a regex
+ast = parser.parse("file:/Needle/")
+check(ast.k == "op" and ast.arg.k == "regex" and ast.arg.pat == "Needle", "op:/regex/ lexes a regex arg")
+check(runn("file:/Need(le)?/"), "op:/regex/ with parens evaluates")
+-- tilde fences hide tags and tasks; UTF-8 inline tags stay whole
+local fenced = eval.note("/vault/f.md", "f.md", table.concat({
+  "~~~~", "#hidden", "- [ ] sample", "~~~", "still fenced #hidden2", "~~~~", "#día visible",
+}, "\n"))
+local function runf(q)
+  return (eval.run(assert(parser.parse(q)), fenced))
+end
+check(not runf("tag:#hidden") and not runf("tag:#hidden2"), "tags in ~~~ fences ignored (shorter fence does not close)")
+check(not runf("task:sample"), "tasks in fences ignored")
+check(runf("tag:#día"), "UTF-8 inline tag kept whole")
+
 ---------------------------------------------------------------- attachments
 -- non-md vault files are matchable by path/filename only (never read)
 group = "attachments"

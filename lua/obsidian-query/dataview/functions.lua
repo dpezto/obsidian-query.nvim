@@ -280,13 +280,35 @@ R.sort = function(_, args)
   return value.array(out)
 end
 R.unique = function(_, args)
-  local out = {}
+  -- scalars, dates and links hash on their eq identity; only arrays/objects
+  -- (and NaN) fall back to pairwise eq, so common inputs stay linear
+  local out, seen, rest = {}, {}, {}
   for _, el in ipairs(as_array(args[1])) do
+    local t = T(el)
+    local key
+    if t == "string" or t == "number" or t == "boolean" then
+      key = el
+    elseif t == "null" then
+      key = true
+    elseif t == "date" then
+      key = el.ts
+    elseif t == "link" then
+      key = value.link_key(el)
+    end
     local dup = false
-    for _, seen in ipairs(out) do
-      if value.eq(el, seen) then
-        dup = true
-        break
+    if key ~= nil and key == key then
+      seen[t] = seen[t] or {}
+      dup = seen[t][key] or false
+      seen[t][key] = true
+    else
+      for _, prev in ipairs(rest) do
+        if value.eq(el, prev) then
+          dup = true
+          break
+        end
+      end
+      if not dup then
+        rest[#rest + 1] = el
       end
     end
     if not dup then

@@ -42,7 +42,7 @@ function M.check()
     h.ok(("obsidian.nvim cache ready (%d notes)"):format(cache.notes.count()))
     -- the cache serving a different vault than the active workspace renders
     -- every query empty — the classic symptom after a workspace switch
-    local active = _G.Obsidian and Obsidian.workspace and vim.fs.normalize(tostring(Obsidian.workspace.path))
+    local active = _G.Obsidian and Obsidian.dir and vim.fs.normalize(tostring(Obsidian.dir))
     if active then
       local any, matching = false, false
       for path in pairs(cache.notes.all()) do
@@ -67,7 +67,12 @@ function M.check()
     end
     if probe then
       local bad = false
-      for _, key in ipairs({ "mtime", "tags", "properties" }) do
+      -- v3.16+ nests file stats under `stat`; older rows carry a flat mtime
+      if probe.stat == nil and probe.mtime == nil then
+        bad = true
+        h.error("cache row missing \"stat\" — row schema drifted, page building will break")
+      end
+      for _, key in ipairs({ "tags", "properties" }) do
         if probe[key] == nil then
           bad = true
           h.error(("cache row missing %q — row schema drifted, page building will break"):format(key))

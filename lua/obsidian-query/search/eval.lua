@@ -109,13 +109,15 @@ function Note:tags()
     end
     tags[#tags + 1] = { tag = t:lower(), lnum = lnum }
   end
-  local in_fence = false
+  local fence_step = require("obsidian-query.index").fence
+  local fence
   for i = fm_end + 1, #self.lines do
     local l = self.lines[i]
-    if l:match("^%s*```") then
-      in_fence = not in_fence
-    elseif not in_fence then
-      for pos, t in l:gmatch("()#([%w_][%w_/%-]*)") do
+    local was_fence = fence
+    fence = fence_step(l, fence)
+    if not was_fence and not fence then
+      -- bytes >= 0x80 are UTF-8 sequence parts: #día is one tag, not #d
+      for pos, t in l:gmatch("()#([%w_\128-\255][%w_/%-\128-\255]*)") do
         local prev = pos > 1 and l:sub(pos - 1, pos - 1) or " "
         -- tag boundary: not preceded by word char (hex colors, urls#anchor),
         -- nor by ( or [ (markdown-link anchors like [Doctorado](#doctorado))
@@ -180,12 +182,18 @@ function Note:tasks()
     return self._tasks
   end
   local tasks = {}
+  local fence_step = require("obsidian-query.index").fence
+  local fence
   for i, l in ipairs(self.lines) do
-    for _, pat in ipairs(TASK_PATTERNS) do
-      local state, text = l:match(pat)
-      if state then
-        tasks[#tasks + 1] = { lnum = i, state = state, text = text }
-        break
+    local was_fence = fence
+    fence = fence_step(l, fence)
+    if not was_fence and not fence then
+      for _, pat in ipairs(TASK_PATTERNS) do
+        local state, text = l:match(pat)
+        if state then
+          tasks[#tasks + 1] = { lnum = i, state = state, text = text }
+          break
+        end
       end
     end
   end
@@ -260,6 +268,10 @@ local function eval_scoped(ast, note, texts, case)
   elseif ast.k == "not" then
     local ok = eval_scoped(ast.kid, note, texts, case)
     return not ok, {}
+  elseif not texts then
+    -- unscoped (top-level boolean): each child keeps its own semantics, so
+    -- bare terms still fall back to the filename
+    return eval_node(ast, note, case)
   elseif ast.k == "word" or ast.k == "phrase" or ast.k == "regex" then
     return leaf_on_texts(ast, texts, case)
   elseif ast.k == "op" and (ast.name == "match-case" or ast.name == "ignore-case") then
@@ -378,7 +390,7 @@ end
 eval_node = function(ast, note, case)
   local k = ast.k
   if k == "and" or k == "or" or k == "not" then
-    return eval_scoped(ast, note, content_texts(note), case)
+    return eval_scoped(ast, note, nil, case)
   elseif k == "word" or k == "phrase" then
     -- bare terms match content or the filename (Obsidian unions both)
     local ok, locs = leaf_on_texts(ast, content_texts(note), case)

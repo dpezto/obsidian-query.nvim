@@ -102,6 +102,11 @@ local function lex(src)
       local opname, rest = w:match("^([%w%-]+):(.+)$")
       if op and OPS[op:lower()] then
         toks[#toks + 1] = { t = "op", name = op:lower(), pos = start, fin = i - 1 }
+      elseif opname and OPS[opname:lower()] and rest:sub(1, 1) == "/" then
+        -- file:/re/ — the argument starts a regex: rewind so the loop lexes it
+        -- (it may hold spaces/parens the word scan stopped at)
+        toks[#toks + 1] = { t = "op", name = opname:lower(), pos = start, fin = start + #opname }
+        i = start + #opname + 1
       elseif opname and OPS[opname:lower()] then
         toks[#toks + 1] = { t = "op", name = opname:lower(), pos = start, fin = start + #opname }
         toks[#toks + 1] = { t = "word", s = rest, pos = start + #opname + 1, fin = i - 1 }

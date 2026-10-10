@@ -95,6 +95,16 @@ function M.date(ts, prec)
   return setmetatable({ ts = ts, prec = prec or "datetime" }, date_mt)
 end
 
+---Local midnight of `ts`'s day, `days` calendar days later. Built from date
+---components (os.time normalizes overflow), so DST days never drift by an hour.
+---@param ts number
+---@param days integer?
+---@return integer
+function M.day_start(ts, days)
+  local t = os.date("*t", math.floor(ts))
+  return os.time({ year = t.year, month = t.month, day = t.day + (days or 0), hour = 0, min = 0, sec = 0 })
+end
+
 ---@param ms number clock part
 ---@param months? number symbolic calendar part (months; years fold into it)
 function M.dur(ms, months)
@@ -218,6 +228,7 @@ end
 local function norm_link_path(l)
   return (l.path:lower():gsub("%.md$", "")) .. "\0" .. (l.subpath or "")
 end
+M.link_key = norm_link_path -- eq identity of a link (unique() hashes on it)
 
 local TYPE_RANK = {
   null = 0,

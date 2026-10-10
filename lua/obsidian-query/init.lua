@@ -4,9 +4,10 @@ local render = require("obsidian-query.render")
 
 local M = {}
 
--- key -> { result?: table, fetching?: boolean, stale?: boolean, bufs: table<integer, true> }
+-- key -> { result?: table, fetching?: table (request token), stale?: boolean, bufs: table<integer, true> }
 -- (declared before setup: its autocmds close over it)
 local cache = {}
+local mark_all_stale ---@type fun() defined below, with the generation it bumps
 
 ---@param opts obsidian-query.Opts?
 function M.setup(opts)
@@ -35,7 +36,7 @@ function M.setup(opts)
         return require("obsidian.api").find_workspace(vim.api.nvim_buf_get_name(ev.buf))
       end)
       local active = _G.Obsidian and Obsidian.workspace
-      if ok and ws and active and tostring(ws.path) ~= tostring(active.path) then
+      if ok and ws and active and tostring(ws.root) ~= tostring(active.root) then
         pcall(require("obsidian.workspace").set, ws)
       end
     end,
@@ -43,23 +44,16 @@ function M.setup(opts)
   -- workspace switched (by us or the user): drop every cross-vault cache and
   -- re-render visible markdown buffers so results swap vaults seamlessly.
   -- (Both spellings: upstream currently fires the typo'd one.)
-  local cache_vault ---@type string? vault obsidian's cache was last built for
   vim.api.nvim_create_autocmd("User", {
     group = group,
     pattern = { "ObsidianWorkpspaceSet", "ObsidianWorkspaceSet" },
     callback = function()
-      -- obsidian.nvim wires its cache ONCE at startup: after a switch it
-      -- still serves the previous vault (ready, wrong rows -> every query
-      -- comes back empty). Rebuild it for the new vault; the initial scan
-      -- skips unchanged files, so revisiting a vault is cheap.
-      local ok, ob_cache = pcall(require, "obsidian.cache")
-      local dir = _G.Obsidian and Obsidian.dir and vim.fs.normalize(tostring(Obsidian.dir))
-      if ok and ob_cache.is_enabled() and dir and dir ~= cache_vault then
-        cache_vault = dir
-        pcall(ob_cache.setup, Obsidian.opts and Obsidian.opts.cache or {})
-      end
+      -- obsidian.nvim (v3.16+) rebuilt its cache for the new vault inside
+      -- Workspace.set, dropping callbacks queued on the old one: requests
+      -- still waiting there never answer, so forget them (refetch re-asks)
+      mark_all_stale()
       for _, entry in pairs(cache) do
-        entry.stale = true
+        entry.fetching = nil
       end
       require("obsidian-query.inline").invalidate()
       vim.schedule(function() -- after the switch settles
@@ -137,7 +131,9 @@ function M.buf_root(buf)
     return require("obsidian.api").find_workspace(path)
   end)
   ws = (ok and ws) or Obsidian.workspace
-  return ws and vim.fs.normalize(tostring(ws.path)) or nil
+  -- the vault root, not ws.path: a non-strict workspace in a vault subfolder
+  -- still queries (and is cached by obsidian.nvim) as the whole vault
+  return ws and vim.fs.normalize(tostring(ws.root)) or nil
 end
 
 -- Workspace context for a fence; nil outside an Obsidian workspace
@@ -150,21 +146,41 @@ end
 -- against pre-write rows and must not clear the stale flag with its result
 local generation = 0
 
-local function mark_all_stale()
+function mark_all_stale()
   generation = generation + 1
   for _, entry in pairs(cache) do
     entry.stale = true
   end
 end
 
+---Drop `buf` from every entry except the `keep` keys; entries no buffer
+---references any more go away with their results.
+local function release(buf, keep)
+  for key, entry in pairs(cache) do
+    if entry.bufs[buf] and not (keep and keep[key]) then
+      entry.bufs[buf] = nil
+      if not next(entry.bufs) then
+        cache[key] = nil
+      end
+    end
+  end
+end
+
+-- buf -> keys parsed in the current render pass (accumulated across roots)
+local live = {}
+
 ---Nudge every buffer holding a stale query fence: a note edited elsewhere
 ---changes results in buffers that saw no event of their own, and without a
 ---parse pass nothing would refetch them. Retried — render-markdown drops
 ---render calls that arrive mid-render, so a single nudge can vanish.
 local function rerender_all()
+  -- stale, or holding a result no parse pass has shown yet
+  local function pending(entry)
+    return entry.stale or entry.shown_id ~= entry.result_id
+  end
   local function nudge()
     for _, entry in pairs(cache) do
-      if entry.stale then
+      if pending(entry) then
         for buf in pairs(entry.bufs) do
           if vim.api.nvim_buf_is_valid(buf) then
             require("render-markdown.api").render({ buf = buf, event = "ObsidianQuery" })
@@ -177,7 +193,7 @@ local function rerender_all()
   end
   local function settled()
     for _, entry in pairs(cache) do
-      if entry.stale and next(entry.bufs) then
+      if pending(entry) and next(entry.bufs) then
         return false
       end
     end
@@ -192,13 +208,19 @@ local function mark_stale_on_change()
     return
   end
   local group = vim.api.nvim_create_augroup("obsidian_query_stale", { clear = true })
+  -- entering a buffer changes no data: only push through what is already
+  -- stale or unshown (picker-mode renders may have been skipped until
+  -- retries ran out)
   stale_au = vim.api.nvim_create_autocmd("BufEnter", {
     group = group,
     pattern = "*.md",
-    callback = function()
-      mark_all_stale()
-      -- Picker-mode renders may have been skipped until retries ran out.
-      rerender_all()
+    callback = rerender_all,
+  })
+  vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
+    group = group,
+    callback = function(ev)
+      live[ev.buf] = nil
+      release(ev.buf)
     end,
   })
   -- BufWritePost alone is a trap: obsidian.nvim reindexes a note only when its
@@ -227,6 +249,7 @@ local function mark_stale_on_change()
     require("obsidian.lsp.watchfiles").register_handler(function()
       mark_all_stale()
       rerender_all()
+      require("obsidian-query.inline").mark_stale()
     end)
   end)
 end
@@ -234,9 +257,11 @@ end
 local function refetch(engine, key, spec, ctx)
   local entry = cache[key]
   local start_gen = generation
-  entry.fetching = true
+  local token = {}
+  entry.fetching = token
   engine.run(spec, ctx, function(result)
-    if not cache[key] then
+    -- entry released, or this request superseded (workspace switch reset it)
+    if cache[key] ~= entry or entry.fetching ~= token then
       return
     end
     if result == nil then
@@ -293,6 +318,8 @@ function M.parse(ctx)
   require("obsidian-query.highlight").attach(ctx.buf)
   local query = get_query()
   local marks = {}
+  local seen = live[ctx.buf] or {}
+  live[ctx.buf] = seen
   for _, match in query:iter_matches(ctx.root, ctx.buf) do
     local lang, body, block
     -- iter_matches yields TSNode[] per capture (nvim 0.11+); the fence query
@@ -319,6 +346,7 @@ function M.parse(ctx)
           cache[key] = entry
         end
         entry.bufs[ctx.buf] = true
+        seen[key] = true
         if not entry.fetching and (not entry.result or entry.stale) then
           refetch(engine, key, spec, qctx)
         end
@@ -340,7 +368,19 @@ function M.parse(ctx)
       end
     end
   end
+  -- last root of the pass: fences edited away or deleted release their entries
+  if ctx.last ~= false then
+    live[ctx.buf] = nil
+    release(ctx.buf, seen)
+  end
   return marks
+end
+
+---Bumped on every data invalidation (notes written/changed, vault switch);
+---lets other modules memoize vault-derived data. Registers the hooks itself.
+function M.generation()
+  mark_stale_on_change()
+  return generation
 end
 
 M.handler = { extends = true, parse = M.parse }

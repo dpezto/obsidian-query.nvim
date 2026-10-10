@@ -109,12 +109,13 @@ function Note:tags()
     end
     tags[#tags + 1] = { tag = t:lower(), lnum = lnum }
   end
-  local in_fence = false
+  local fence_step = require("obsidian-query.index").fence
+  local fence
   for i = fm_end + 1, #self.lines do
     local l = self.lines[i]
-    if l:match("^%s*```") then
-      in_fence = not in_fence
-    elseif not in_fence then
+    local was_fence = fence
+    fence = fence_step(l, fence)
+    if not was_fence and not fence then
       for pos, t in l:gmatch("()#([%w_][%w_/%-]*)") do
         local prev = pos > 1 and l:sub(pos - 1, pos - 1) or " "
         -- tag boundary: not preceded by word char (hex colors, urls#anchor),
@@ -180,12 +181,18 @@ function Note:tasks()
     return self._tasks
   end
   local tasks = {}
+  local fence_step = require("obsidian-query.index").fence
+  local fence
   for i, l in ipairs(self.lines) do
-    for _, pat in ipairs(TASK_PATTERNS) do
-      local state, text = l:match(pat)
-      if state then
-        tasks[#tasks + 1] = { lnum = i, state = state, text = text }
-        break
+    local was_fence = fence
+    fence = fence_step(l, fence)
+    if not was_fence and not fence then
+      for _, pat in ipairs(TASK_PATTERNS) do
+        local state, text = l:match(pat)
+        if state then
+          tasks[#tasks + 1] = { lnum = i, state = state, text = text }
+          break
+        end
       end
     end
   end

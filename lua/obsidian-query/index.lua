@@ -43,23 +43,43 @@ local function read_starred(root)
 end
 M._read_starred = read_starred -- test hook
 
+---Code-fence tracking (CommonMark: ``` or ~~~, 3+ long; closed only by the
+---same char at least as long, nothing else on the line).
+---@param line string
+---@param open string? fence marker currently open, nil outside fences
+---@return string? open marker after this line
+function M.fence(line, open)
+  local marker = line:match("^%s*(```+)") or line:match("^%s*(~~~+)")
+  if not open then
+    return marker
+  end
+  if marker and marker:sub(1, 1) == open:sub(1, 1) and #marker >= #open and line:match("^%s*[`~]+%s*$") then
+    return nil
+  end
+  return open
+end
+
 local function extract_sup(path)
   local fd = io.open(path, "r")
   if not fd then
     return { fields = {}, headers = {}, lists = {} }
   end
   local fields, headers, lists = {}, {}, {}
-  local lnum, in_fence, in_fm = 0, false, false
+  local lnum, fence, in_fm = 0, nil, false
   for line in fd:lines() do
     lnum = lnum + 1
+    local body = false
     -- frontmatter delimiters: YAML `- item` lines must not count as lists
     if lnum == 1 and line == "---" then
       in_fm = true
     elseif in_fm and (line:match("^%-%-%-%s*$") or line:match("^%.%.%.%s*$")) then
       in_fm = false
-    elseif line:match("^%s*```") then
-      in_fence = not in_fence
-    elseif not in_fence and not in_fm then
+    elseif not in_fm then
+      local was_fence = fence
+      fence = M.fence(line, fence)
+      body = not was_fence and not fence
+    end
+    if body then
       local hashes, text = line:match("^(#+)%s+(.*)$")
       if hashes then
         headers[#headers + 1] = { line = lnum, level = #hashes, text = text }

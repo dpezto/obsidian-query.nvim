@@ -604,13 +604,15 @@ check(sup2.fields.single == "uno", "single key stays scalar")
 -- list extraction: bullets and numbered outside fences/frontmatter only
 local listmd = tmp .. "/lists.md"
 fd = io.open(listmd, "w")
-fd:write("---\ntags:\n  - yaml-item\n---\n# H\n- uno\n  - dos\n3) tres\n```\n- fenced\n```\n- [ ] box\n")
+fd:write("---\ntags:\n  - yaml-item\n---\n# H\n- uno\n  - dos\n3) tres\n```\n- fenced\n```\n"
+  .. "~~~~\n- tilde\n# not a heading\nfake:: field\n~~~\n~~~~\n- [ ] box\n")
 fd:close()
 local sup3 = idx_mod._extract_sup(listmd)
 check(#sup3.lists == 4, "yaml + fenced bullets excluded, box included")
 check(sup3.lists[1].text == "uno" and sup3.lists[2].indent == 2, "list text + indent")
 check(sup3.lists[3].text == "tres", "numbered list item")
 check(sup3.lists[4].text == "[ ] box", "checkbox line still recorded (paired with its task by line)")
+check(#sup3.headers == 1 and sup3.fields.fake == nil, "~~~ fences hide headings and fields")
 vim.fn.delete(tmp, "rf")
 
 ---------------------------------------------------------------- task toggle

@@ -292,12 +292,9 @@ local function run_commands(rows, cmds, ctx)
       for _, row in ipairs(rows) do
         local v = eval.expr(cmd.expr, row_env(row, ctx))
         if value.typeof(v) == "array" then
-          if #v == 0 then
-            out[#out + 1] = overlay(row, { [alias] = NULL })
-          else
-            for _, el in ipairs(v) do
-              out[#out + 1] = overlay(row, { [alias] = el })
-            end
+          -- an empty array yields no rows (Dataview semantics)
+          for _, el in ipairs(v) do
+            out[#out + 1] = overlay(row, { [alias] = el })
           end
         else
           out[#out + 1] = overlay(row, { [alias] = v })

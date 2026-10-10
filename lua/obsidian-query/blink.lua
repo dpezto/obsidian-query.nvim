@@ -110,15 +110,24 @@ local FN_DOCS = {
 
 ---------------------------------------------------------------- vault data
 
+local memo ---@type {key: string, data: table}?
+
 local function vault_data()
   local out = { tags = {}, folders = {}, notes = {}, props = {} }
   local ok, cache = pcall(require, "obsidian.cache")
   if not (ok and cache.is_enabled() and cache.is_ready()) then
     return out
   end
-  local root = require("obsidian-query").buf_root(vim.api.nvim_get_current_buf())
+  local core = require("obsidian-query")
+  local root = core.buf_root(vim.api.nvim_get_current_buf())
   if not root then
     return out
+  end
+  -- completion re-queries on every keystroke: rebuild only after the vault
+  -- data changed (generation bumps on writes, watcher events, vault switches)
+  local key = root .. "\0" .. core.generation()
+  if memo and memo.key == key then
+    return memo.data
   end
   local tags, folders, props = {}, {}, {}
   for path, row in pairs(cache.notes.all()) do
@@ -150,6 +159,7 @@ local function vault_data()
   table.sort(out.folders)
   table.sort(out.notes)
   table.sort(out.props)
+  memo = { key = key, data = out }
   return out
 end
 
@@ -195,7 +205,6 @@ end
 
 local function query_items(before)
   local K = kinds()
-  local vd = vault_data()
   local _, nquotes = before:gsub('"', "")
   if nquotes % 2 == 1 then
     return {} -- inside a "phrase"
@@ -203,26 +212,25 @@ local function query_items(before)
   if before:match("tag:#?[%w_/%-]*$") then
     return vim.tbl_map(function(t)
       return item(t, K.Enum, "vault tag")
-    end, vd.tags)
+    end, vault_data().tags)
   elseif before:match("path:%S*$") then
     return vim.tbl_map(function(f)
       return item(f, K.Folder)
-    end, vd.folders)
+    end, vault_data().folders)
   elseif before:match("file:%S*$") then
     return vim.tbl_map(function(n)
       return item(vim.fn.fnamemodify(n, ":t"), K.File)
-    end, vd.notes)
+    end, vault_data().notes)
   elseif before:match("%[[%w%s%-]*$") then
     return vim.tbl_map(function(p)
       return item(p, K.Property, "frontmatter property; `[" .. p .. ":value]` to match a value")
-    end, vd.props)
+    end, vault_data().props)
   end
   return static_items(QUERY_OPS, K.Keyword)
 end
 
 local function dataview_items(before)
   local K = kinds()
-  local vd = vault_data()
   -- inside an open string? (odd number of quotes before cursor — a closed
   -- `FROM "x"` earlier in the line must NOT hijack later completions)
   local _, nquotes = before:gsub('"', "")
@@ -230,18 +238,18 @@ local function dataview_items(before)
     if before:match("[Ff][Rr][Oo][Mm]") then
       return vim.tbl_map(function(f)
         return item(f, K.Folder)
-      end, vd.folders)
+      end, vault_data().folders)
     end
     return {} -- plain string literal: nothing to offer
   end
   if before:match("%[%[[^%]]*$") then
     return vim.tbl_map(function(n)
       return item(vim.fn.fnamemodify(n, ":t"), K.File, nil, vim.fn.fnamemodify(n, ":t"))
-    end, vd.notes)
+    end, vault_data().notes)
   elseif before:match("#[%w_/%-]*$") then
     return vim.tbl_map(function(t)
       return item(t, K.Enum, "vault tag")
-    end, vd.tags)
+    end, vault_data().tags)
   elseif before:match("file%.[%w]*$") then
     return static_items(FILE_FIELDS, K.Field)
   end
@@ -251,7 +259,7 @@ local function dataview_items(before)
   for name in pairs(require("obsidian-query.dataview.functions").registry) do
     items[#items + 1] = item(name, K.Function, FN_DOCS[name], name .. "(")
   end
-  for _, p in ipairs(vd.props) do
+  for _, p in ipairs(vault_data().props) do
     items[#items + 1] = item(p, K.Property, "frontmatter property")
   end
   return items

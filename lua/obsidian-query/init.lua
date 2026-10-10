@@ -376,6 +376,13 @@ function M.parse(ctx)
   return marks
 end
 
+---Bumped on every data invalidation (notes written/changed, vault switch);
+---lets other modules memoize vault-derived data. Registers the hooks itself.
+function M.generation()
+  mark_stale_on_change()
+  return generation
+end
+
 M.handler = { extends = true, parse = M.parse }
 
 -- Engine + parsed spec of the fence under the cursor, or nil

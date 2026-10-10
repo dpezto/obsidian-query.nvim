@@ -84,7 +84,8 @@ function M.build_tasks(abs_path, cache_tasks, headers, rel)
       end
     end
     local tags = {}
-    for tag in (ct.text or ""):gmatch("#([%w_][%w_/%-]*)") do
+    -- bytes >= 0x80 are UTF-8 sequence parts: #día is one tag, not #d
+    for tag in (ct.text or ""):gmatch("#([%w_\128-\255][%w_/%-\128-\255]*)") do
       tags[#tags + 1] = "#" .. tag:lower()
     end
     -- inline fields on the task: [due:: 2026-08-01] / (key:: v) + emoji dates

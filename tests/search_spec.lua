@@ -169,7 +169,7 @@ check(not runn("-Needle"), "negated filename term excludes the note")
 ast = parser.parse("file:/Needle/")
 check(ast.k == "op" and ast.arg.k == "regex" and ast.arg.pat == "Needle", "op:/regex/ lexes a regex arg")
 check(runn("file:/Need(le)?/"), "op:/regex/ with parens evaluates")
--- tilde fences hide tags and tasks
+-- tilde fences hide tags and tasks; UTF-8 inline tags stay whole
 local fenced = eval.note("/vault/f.md", "f.md", table.concat({
   "~~~~", "#hidden", "- [ ] sample", "~~~", "still fenced #hidden2", "~~~~", "#día visible",
 }, "\n"))
@@ -178,6 +178,7 @@ local function runf(q)
 end
 check(not runf("tag:#hidden") and not runf("tag:#hidden2"), "tags in ~~~ fences ignored (shorter fence does not close)")
 check(not runf("task:sample"), "tasks in fences ignored")
+check(runf("tag:#día"), "UTF-8 inline tag kept whole")
 
 ---------------------------------------------------------------- attachments
 -- non-md vault files are matchable by path/filename only (never read)

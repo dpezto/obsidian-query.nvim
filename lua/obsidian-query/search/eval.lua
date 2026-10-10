@@ -116,7 +116,8 @@ function Note:tags()
     local was_fence = fence
     fence = fence_step(l, fence)
     if not was_fence and not fence then
-      for pos, t in l:gmatch("()#([%w_][%w_/%-]*)") do
+      -- bytes >= 0x80 are UTF-8 sequence parts: #día is one tag, not #d
+      for pos, t in l:gmatch("()#([%w_\128-\255][%w_/%-\128-\255]*)") do
         local prev = pos > 1 and l:sub(pos - 1, pos - 1) or " "
         -- tag boundary: not preceded by word char (hex colors, urls#anchor),
         -- nor by ( or [ (markdown-link anchors like [Doctorado](#doctorado))

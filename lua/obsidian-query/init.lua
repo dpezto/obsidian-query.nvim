@@ -4,9 +4,10 @@ local render = require("obsidian-query.render")
 
 local M = {}
 
--- key -> { result?: table, fetching?: boolean, stale?: boolean, bufs: table<integer, true> }
+-- key -> { result?: table, fetching?: table (request token), stale?: boolean, bufs: table<integer, true> }
 -- (declared before setup: its autocmds close over it)
 local cache = {}
+local mark_all_stale ---@type fun() defined below, with the generation it bumps
 
 ---@param opts obsidian-query.Opts?
 function M.setup(opts)
@@ -43,23 +44,16 @@ function M.setup(opts)
   -- workspace switched (by us or the user): drop every cross-vault cache and
   -- re-render visible markdown buffers so results swap vaults seamlessly.
   -- (Both spellings: upstream currently fires the typo'd one.)
-  local cache_vault ---@type string? vault obsidian's cache was last built for
   vim.api.nvim_create_autocmd("User", {
     group = group,
     pattern = { "ObsidianWorkpspaceSet", "ObsidianWorkspaceSet" },
     callback = function()
-      -- obsidian.nvim wires its cache ONCE at startup: after a switch it
-      -- still serves the previous vault (ready, wrong rows -> every query
-      -- comes back empty). Rebuild it for the new vault; the initial scan
-      -- skips unchanged files, so revisiting a vault is cheap.
-      local ok, ob_cache = pcall(require, "obsidian.cache")
-      local dir = _G.Obsidian and Obsidian.dir and vim.fs.normalize(tostring(Obsidian.dir))
-      if ok and ob_cache.is_enabled() and dir and dir ~= cache_vault then
-        cache_vault = dir
-        pcall(ob_cache.setup, Obsidian.opts and Obsidian.opts.cache or {})
-      end
+      -- obsidian.nvim (v3.16+) rebuilt its cache for the new vault inside
+      -- Workspace.set, dropping callbacks queued on the old one: requests
+      -- still waiting there never answer, so forget them (refetch re-asks)
+      mark_all_stale()
       for _, entry in pairs(cache) do
-        entry.stale = true
+        entry.fetching = nil
       end
       require("obsidian-query.inline").invalidate()
       vim.schedule(function() -- after the switch settles
@@ -152,7 +146,7 @@ end
 -- against pre-write rows and must not clear the stale flag with its result
 local generation = 0
 
-local function mark_all_stale()
+function mark_all_stale()
   generation = generation + 1
   for _, entry in pairs(cache) do
     entry.stale = true
@@ -236,9 +230,11 @@ end
 local function refetch(engine, key, spec, ctx)
   local entry = cache[key]
   local start_gen = generation
-  entry.fetching = true
+  local token = {}
+  entry.fetching = token
   engine.run(spec, ctx, function(result)
-    if not cache[key] then
+    -- superseded: a workspace switch reset this request
+    if not cache[key] or entry.fetching ~= token then
       return
     end
     if result == nil then

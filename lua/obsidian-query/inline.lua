@@ -8,6 +8,7 @@ local idx ---@type table? cached obsidian-query.index result
 local idx_root ---@type string? vault the cached index belongs to
 local idx_stale, idx_pending = false, false
 local idx_gen, shown_gen = 0, 0
+local request ---@type table? token of the in-flight index request
 local stale_au ---@type integer?
 local expr_cache = {} ---@type table<string, table|false> parsed ASTs
 local page_cache = {} ---@type table<string, {gen: integer, page: table}>
@@ -38,9 +39,12 @@ local function rerender(buf)
 end
 
 ---Drop the cached index (workspace switched): old-vault values must not
----render against the new vault.
+---render against the new vault. An in-flight request is forgotten too — its
+---callback may never come (obsidian.nvim drops queued cache callbacks on a
+---switch) and must not land if it does.
 function M.invalidate()
   idx, idx_root, idx_stale = nil, nil, false
+  idx_pending, request = false, nil
   page_cache = {}
 end
 
@@ -53,8 +57,13 @@ local function ensure_index(root, buf)
   end
   if not idx_pending then
     idx_pending = true
+    local token = {}
+    request = token
     require("obsidian-query.index").get({ root = root }, function(result)
-      idx_pending = false
+      if request ~= token then
+        return -- superseded by invalidate()
+      end
+      idx_pending, request = false, nil
       if result then
         idx, idx_root, idx_stale = result, root, false
         idx_gen = idx_gen + 1

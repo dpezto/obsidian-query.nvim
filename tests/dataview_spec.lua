@@ -805,4 +805,45 @@ do
   for name, module in pairs(modules) do package.loaded[name] = module or nil end
 end
 
+-- obsidian.nvim drops queued cache callbacks on a workspace switch: the
+-- inline index request they strand must be retried.
+do
+  group = "inline index reset"
+  local inline = require("obsidian-query.inline")
+  local core = require("obsidian-query")
+  local saved_root, saved_get, saved_retry = core.buf_root, idx_mod.get, base.retry
+  local saved_rm = package.loaded["render-markdown.api"]
+  package.loaded["render-markdown.api"] = { render = function() end }
+  base.retry = function() end
+  local path = ROOT .. "/Journal/2026-07-01.md"
+  core.buf_root = function() return ROOT end
+  local calls = 0
+  idx_mod.get = function()
+    calls = calls + 1
+  end
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(buf, path)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "x `= file.name` y" })
+  local function parse()
+    local ltree = vim.treesitter.get_parser(buf, "markdown")
+    ltree:parse(true)
+    local marks
+    ltree:for_each_tree(function(tree, lt)
+      if lt:lang() == "markdown_inline" then
+        marks = inline.parse({ buf = buf, root = tree:root() })
+      end
+    end)
+    return marks
+  end
+  inline.invalidate()
+  check(#parse() == 0 and calls == 1, "first parse requests the index")
+  inline.invalidate() -- workspace switch: obsidian.nvim drops the queued callback
+  parse()
+  check(calls == 2, "a request stranded by a cache reset is retried")
+  inline.invalidate()
+  vim.api.nvim_buf_delete(buf, { force = true })
+  core.buf_root, idx_mod.get, base.retry = saved_root, saved_get, saved_retry
+  package.loaded["render-markdown.api"] = saved_rm
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

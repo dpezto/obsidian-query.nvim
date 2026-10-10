@@ -21,10 +21,24 @@ local lexer = require("obsidian-query.dataview.lexer")
 local M = {}
 
 local KEYWORDS = {
-  TABLE = true, LIST = true, TASK = true, CALENDAR = true,
-  WITHOUT = true, ID = true, FROM = true, WHERE = true, SORT = true,
-  GROUP = true, BY = true, FLATTEN = true, LIMIT = true, AS = true,
-  ASC = true, DESC = true, AND = true, OR = true,
+  TABLE = true,
+  LIST = true,
+  TASK = true,
+  CALENDAR = true,
+  WITHOUT = true,
+  ID = true,
+  FROM = true,
+  WHERE = true,
+  SORT = true,
+  GROUP = true,
+  BY = true,
+  FLATTEN = true,
+  LIMIT = true,
+  AS = true,
+  ASC = true,
+  DESC = true,
+  AND = true,
+  OR = true,
 }
 
 local P = {}
@@ -123,7 +137,7 @@ function P:src_atom()
     self:expect(")")
     return s
   end
-  self:err("expected a FROM source (#tag, \"folder\", [[link]], outgoing(...))")
+  self:err('expected a FROM source (#tag, "folder", [[link]], outgoing(...))')
 end
 
 ---------------------------------------------------------------- expressions

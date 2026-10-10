@@ -21,13 +21,13 @@ local QUERY_OPS = {
 }
 
 local DQL_KEYWORDS = {
-  { "TABLE", "Tabular output: `TABLE field1, field2 AS \"Alias\"`" },
+  { "TABLE", 'Tabular output: `TABLE field1, field2 AS "Alias"`' },
   { "TABLE WITHOUT ID", "Table without the File column" },
   { "LIST", "Bulleted note list, optional expression: `LIST file.mtime`" },
   { "TASK", "Query task items instead of notes" },
   { "CALENDAR", "Month grids of dated notes: `CALENDAR file.day`" },
-  { "FROM", "Source: `#tag`, `\"folder\"`, `[[note]]`, `outgoing([[note]])`, AND/OR/-" },
-  { "WHERE", "Filter rows: `WHERE status = \"open\" AND priority > 1`" },
+  { "FROM", 'Source: `#tag`, `"folder"`, `[[note]]`, `outgoing([[note]])`, AND/OR/-' },
+  { "WHERE", 'Filter rows: `WHERE status = "open" AND priority > 1`' },
   { "SORT", "Order rows: `SORT file.name DESC, priority ASC`" },
   { "GROUP BY", "Bucket rows; each group gets `key` and `rows`" },
   { "FLATTEN", "One row per array element: `FLATTEN file.tags AS t`" },
@@ -38,7 +38,7 @@ local DQL_KEYWORDS = {
   { "AND", "Both sides truthy" },
   { "OR", "Either side truthy" },
   { "outgoing(", "Pages a note links to: `FROM outgoing([[note]])`" },
-  { "csv(", "Query a CSV file's rows: `FROM csv(\"data.csv\")`" },
+  { "csv(", 'Query a CSV file\'s rows: `FROM csv("data.csv")`' },
   { "this", "The note containing this fence" },
 }
 
@@ -66,8 +66,8 @@ local FILE_FIELDS = {
 -- row-level fields available in TASK queries (tasks are exploded to rows)
 local TASK_FIELDS = {
   { "text", "Task text (TASK queries)" },
-  { "status", "Raw checkbox char: \" \", \"x\", \"-\", … (TASK queries)" },
-  { "checked", "status ~= \" \" (TASK queries)" },
+  { "status", 'Raw checkbox char: " ", "x", "-", … (TASK queries)' },
+  { "checked", 'status ~= " " (TASK queries)' },
   { "completed", "status is x/X (TASK queries)" },
   { "fullyCompleted", "Completed including all subtasks (TASK queries)" },
   { "line", "1-indexed line in the note (TASK queries)" },
@@ -101,7 +101,7 @@ local FN_DOCS = {
   dateformat = 'dateformat(date, "yyyy-MM-dd")',
   striptime = "striptime(date) — drop time component",
   regexmatch = 'regexmatch(string, "\\d+")',
-  regexreplace = 'regexreplace(string, pat, rep)',
+  regexreplace = "regexreplace(string, pat, rep)",
   flat = "flat(array, depth = 1)",
   unique = "unique(array)",
   any = "any(array, pred?)",

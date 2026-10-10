@@ -21,12 +21,16 @@ local ok, err = xpcall(function()
       tasks[i] = { path = path, line = i, text = text, status = " ", completed = false }
     end
     require("obsidian-query.dataview").pick({}, {}, {
-      ok = true, data = { kind = "task", groups = { { items = tasks } } },
+      ok = true,
+      data = { kind = "task", groups = { { items = tasks } } },
     })
     local picker = assert(Snacks.picker.get()[1])
-    assert(vim.wait(2000, function()
-      return picker.list.win:valid() and #picker.list.visible == 3
-    end), "picker did not render")
+    assert(
+      vim.wait(2000, function()
+        return picker.list.win:valid() and #picker.list.visible == 3
+      end),
+      "picker did not render"
+    )
     vim.cmd("stopinsert")
     vim.api.nvim_set_current_win(picker.list.win.win)
     local function shown(i)
@@ -40,22 +44,35 @@ local ok, err = xpcall(function()
     end
     toggle(1)
     toggle(2)
-    assert(vim.deep_equal(vim.fn.readfile(path), { "- [x] first", "- [x] second", "- [ ] " }),
-      "Ctrl-T toggled the previous task")
-    assert(shown(1):find("[x] first", 1, true) and shown(2):find("[x] second", 1, true),
-      "picker rows did not redraw immediately")
+    assert(
+      vim.deep_equal(vim.fn.readfile(path), { "- [x] first", "- [x] second", "- [ ] " }),
+      "Ctrl-T toggled the previous task"
+    )
+    assert(
+      shown(1):find("[x] first", 1, true) and shown(2):find("[x] second", 1, true),
+      "picker rows did not redraw immediately"
+    )
     toggle(3)
-    assert(vim.fn.readfile(path)[3] == "- [x] " and shown(3):find("[x]", 1, true),
-      "formatter mutation broke empty task toggling")
+    assert(
+      vim.fn.readfile(path)[3] == "- [x] " and shown(3):find("[x]", 1, true),
+      "formatter mutation broke empty task toggling"
+    )
     toggle(2)
-    assert(vim.fn.readfile(path)[2] == "- [ ] second" and shown(2):find("[ ] second", 1, true),
-      "reopening did not redraw")
-    assert(vim.wait(1000, function()
-      local preview = vim.api.nvim_buf_get_lines(picker.preview.win.buf, 0, -1, false)
-      return vim.deep_equal(preview, vim.fn.readfile(path))
-    end), "preview and source disagree")
+    assert(
+      vim.fn.readfile(path)[2] == "- [ ] second" and shown(2):find("[ ] second", 1, true),
+      "reopening did not redraw"
+    )
+    assert(
+      vim.wait(1000, function()
+        local preview = vim.api.nvim_buf_get_lines(picker.preview.win.buf, 0, -1, false)
+        return vim.deep_equal(preview, vim.fn.readfile(path))
+      end),
+      "preview and source disagree"
+    )
     picker:close()
-    vim.wait(20, function() return false end) -- let pending preview callbacks finish
+    vim.wait(20, function()
+      return false
+    end) -- let pending preview callbacks finish
   end
 end, debug.traceback)
 vim.fn.delete(path)

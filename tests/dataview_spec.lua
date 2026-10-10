@@ -89,7 +89,7 @@ end
 
 ---------------------------------------------------------------- lexer
 group = "lexer"
-local toks = assert(lexer.tokenize('due-date - b "x" \'y\' #a/b [[Note|Show]] (f) => != 3.5'))
+local toks = assert(lexer.tokenize("due-date - b \"x\" 'y' #a/b [[Note|Show]] (f) => != 3.5"))
 local types = vim.tbl_map(function(t)
   return t.type
 end, toks)
@@ -104,7 +104,9 @@ check(toks[#toks - 1].type == "NUMBER" and toks[#toks - 1].text == "3.5", "numbe
 
 ---------------------------------------------------------------- parser
 group = "parser"
-local q = assert(parser.parse('TABLE WITHOUT ID status AS "Status", priority FROM #día WHERE priority > 1 SORT priority DESC LIMIT 5'))
+local q = assert(
+  parser.parse('TABLE WITHOUT ID status AS "Status", priority FROM #día WHERE priority > 1 SORT priority DESC LIMIT 5')
+)
 check(q.header.kind == "table" and q.header.without_id, "TABLE WITHOUT ID")
 check(#q.header.fields == 2 and q.header.fields[1].alias == "Status", "field alias")
 check(q.commands[1].cmd == "from" and q.commands[1].src.k == "s_tag", "FROM #tag")
@@ -190,7 +192,10 @@ check(F.startswith(env, { "foobar", "foo" }) == true, "startswith")
 check(F.round(env, { 3.456, 2 }) == 3.46, "round digits")
 check(F.typeof(env, { value.NULL }) == "null", "typeof")
 check(F.dateformat(env, { value.parse_date("2026-07-01"), "yyyy/MM/dd" }) == "2026/07/01", "dateformat")
-check(F.dateformat(env, { value.parse_date("2026-07-01"), "'week' W" }):match("^week %d+$") ~= nil, "dateformat literal+W")
+check(
+  F.dateformat(env, { value.parse_date("2026-07-01"), "'week' W" }):match("^week %d+$") ~= nil,
+  "dateformat literal+W"
+)
 check(F.striptime(env, { value.parse_date("2026-07-01T14:30") }).prec == "date", "striptime")
 
 ---------------------------------------------------------------- eval
@@ -201,15 +206,15 @@ local function ev(src)
   local q3 = assert(parser.parse("LIST WHERE " .. src))
   return eval.expr(q3.commands[1].expr, penv)
 end
-check(ev("status = \"open\"") == true, "fm field access")
+check(ev('status = "open"') == true, "fm field access")
 check(ev("priority + 1 = 4") == true, "arith on field")
 check(ev("missing.deep.chain") == value.NULL, "null chain propagates")
 check(ev("file.name") == "2026-07-01", "file.name")
 check(ev("file.folder") == "Journal", "file.folder")
 check(value.typeof(ev("due")) == "date", "ISO frontmatter string -> date")
 check(ev("session-goal") == "publish notes", "inline field via kebab ident")
-check(ev("contains(file.tags, \"#ci\")") == true, "tag prefix expansion")
-check(ev("contains(file.etags, \"#ci/setup\")") == true, "etags exact")
+check(ev('contains(file.tags, "#ci")') == true, "tag prefix expansion")
+check(ev('contains(file.etags, "#ci/setup")') == true, "etags exact")
 check(ev("length(file.aliases) = 1") == true, "aliases")
 check(ev("length(file.inlinks) = 1") == true, "inlinks")
 check(ev("length(file.outlinks) = 1") == true, "outlinks")
@@ -222,7 +227,7 @@ check(ev("any(map(file.tasks, (t) => !t.checked))") == true, "lambda over tasks"
 check(ev("none(list(false, false))") == true and ev("none(list(true))") == false, "none()")
 check(ev('startswith("abc", "z")') == false, "call returning false stays false, not null")
 check(ev('startswith("abc", "z") = false') == true, "false results compare as false")
-check(ev('string(-dur(1 month))') == "-1 month", "negated duration keeps months")
+check(ev("string(-dur(1 month))") == "-1 month", "negated duration keeps months")
 check(ev("date(today) - due < dur(30 days)") == true, "date literal + dur math")
 -- swizzle
 local rows_v = eval.expr(assert(parser.parse("LIST WHERE file.tasks.text")).commands[1].expr, penv)
@@ -241,10 +246,13 @@ check(value.typeof(pg.file.tasks[3].due) == "date" and pg.file.tasks[3].due.day 
 
 group = "this"
 local tctx = vim.tbl_extend("force", {}, CTX, { this_path = ROOT .. "/Journal/2026-07-01.md" })
-local tres = query.run('LIST WHERE file.name = this.file.name', tctx)
+local tres = query.run("LIST WHERE file.name = this.file.name", tctx)
 check(tres.ok and #tres.data.groups[1].items == 1, "this resolves to fence note")
 tres = query.run("LIST FROM [[]]", tctx)
-check(tres.ok and #tres.data.groups[1].items == 1 and tres.data.groups[1].items[1].path:find("reading"), "FROM [[]] = inlinks of this")
+check(
+  tres.ok and #tres.data.groups[1].items == 1 and tres.data.groups[1].items[1].path:find("reading"),
+  "FROM [[]] = inlinks of this"
+)
 
 ---------------------------------------------------------------- pipeline
 group = "pipeline"
@@ -258,7 +266,7 @@ check(res.data.rows[1].path:find("2026%-07%-01"), "row path")
 res = run("LIST FROM #ci")
 check(res.ok and #res.data.groups[1].items == 1, "nested tag source")
 
-res = run("LIST FROM #día WHERE status = \"open\"")
+res = run('LIST FROM #día WHERE status = "open"')
 check(res.ok and #res.data.groups[1].items == 1, "WHERE filters")
 
 res = run("LIST FROM [[2026-07-10]]")
@@ -274,7 +282,7 @@ check(res.ok and #res.data.groups[1].items == 3, "source OR")
 res = run('LIST FROM -"Papers"')
 check(res.ok and #res.data.groups[1].items == 2, "source negation")
 
-res = run("TABLE length(rows) FROM \"Journal\" GROUP BY status")
+res = run('TABLE length(rows) FROM "Journal" GROUP BY status')
 check(res.ok and #res.data.rows == 2, "GROUP BY buckets")
 check(res.data.rows[1].cells[1] == 1, "length(rows)")
 
@@ -290,7 +298,7 @@ local b = run('TABLE length(rows) FROM "Journal" GROUP BY status WHERE length(ro
 check(a.ok and #a.data.rows == 1, "WHERE then GROUP")
 check(b.ok and #b.data.rows == 0, "GROUP then WHERE on group rows")
 
-res = run("TASK FROM \"Journal\" WHERE !completed")
+res = run('TASK FROM "Journal" WHERE !completed')
 check(res.ok, "task query runs")
 local tcount = 0
 for _, g in ipairs(res.data.groups) do
@@ -298,7 +306,7 @@ for _, g in ipairs(res.data.groups) do
 end
 check(tcount == 1, "task explosion + WHERE on task fields; got " .. tcount)
 
-res = run("TASK FROM \"Journal\" GROUP BY section")
+res = run('TASK FROM "Journal" GROUP BY section')
 check(res.ok and #res.data.groups >= 1, "task GROUP BY section")
 
 res = run("CALENDAR")
@@ -369,8 +377,12 @@ check(dv_render.view_month(vm_data, -7).label == "December 2025", "view_month of
 
 -- day cells are heat-mapped by note count over the shown month
 local function heat_of(days)
-  local d = { kind = "calendar", months = { { year = 2026, month = 7, days = days } }, dated = {},
-    today = { year = 2026, month = 7, day = 1 } }
+  local d = {
+    kind = "calendar",
+    months = { { year = 2026, month = 7, days = days } },
+    dated = {},
+    today = { year = 2026, month = 7, day = 1 },
+  }
   local hl = {}
   for _, line in ipairs(dv_render.calendar_lines(d, 0)) do
     for _, seg in ipairs(line) do
@@ -393,8 +405,8 @@ check(last == 1, "fewest notes -> first palette step")
 check(step_of(ramp[3]) > last and step_of(ramp[6]) > step_of(ramp[3]), "more notes -> further along the ramp")
 check(vim.api.nvim_get_hl(0, { name = ramp[6] }).fg ~= nil, "heat groups defined")
 -- the ramp is interpolated, not snapped to its anchors
-local anchors = { ["88226a"] = true, ["a83655"] = true, ["e35933"] = true,
-  ["f9950a"] = true, ["f8c932"] = true, ["fcffa4"] = true }
+local anchors =
+  { ["88226a"] = true, ["a83655"] = true, ["e35933"] = true, ["f9950a"] = true, ["f8c932"] = true, ["fcffa4"] = true }
 local between = 0
 for i = 1, step_of(ramp[6]) do
   local fg = vim.api.nvim_get_hl(0, { name = "ObsidianQueryHeat" .. i }).fg
@@ -405,8 +417,12 @@ end
 check(between > 0, "steps interpolate between the ramp anchors")
 -- legend: `lo ███ hi` under the grid, grid-wide, only when counts vary
 local function legend_of(days)
-  local d = { kind = "calendar", months = { { year = 2026, month = 7, days = days } }, dated = {},
-    today = { year = 2026, month = 7, day = 1 } }
+  local d = {
+    kind = "calendar",
+    months = { { year = 2026, month = 7, days = days } },
+    dated = {},
+    today = { year = 2026, month = 7, day = 1 },
+  }
   for _, line in ipairs(dv_render.calendar_lines(d, 0)) do
     if line[2] and line[2][1]:match("^%d+ $") and line[3] and line[3][1] == "█" then
       return line
@@ -434,7 +450,10 @@ check(legend_of({}) == nil, "no legend for an empty month")
 -- today keeps its heat colour, marked by a stacked attribute group
 local with_today = heat_of({ [1] = { "a" }, [4] = { "a", "b" } })
 check(type(with_today[1]) == "table", "today's cell stacks two groups")
-check(with_today[1][1]:find("^ObsidianQueryHeat%d+$") and with_today[1][2] == "ObsidianQueryToday", "today = heat + today attrs")
+check(
+  with_today[1][1]:find("^ObsidianQueryHeat%d+$") and with_today[1][2] == "ObsidianQueryToday",
+  "today = heat + today attrs"
+)
 check(type(with_today[4]) == "string" and step_of(with_today[4]) > 1, "other days keep a plain heat group")
 local today_hl = vim.api.nvim_get_hl(0, { name = "ObsidianQueryToday" })
 check(today_hl.reverse and today_hl.fg == nil, "today group reverses the heat colour, owns none")
@@ -544,11 +563,17 @@ group = "durations"
 local jan31 = value.parse_date("2026-01-31")
 local plus1mo = value.arith("+", jan31, value.parse_dur("1 month"))
 check(value.to_display(plus1mo) == "2026-02-28", "month shift clamps day")
-check(value.to_display(value.arith("+", value.parse_date("2024-02-29"), value.parse_dur("1 year"))) == "2025-02-28", "year shift clamps leap day")
+check(
+  value.to_display(value.arith("+", value.parse_date("2024-02-29"), value.parse_dur("1 year"))) == "2025-02-28",
+  "year shift clamps leap day"
+)
 check(value.parse_dur("1 mo").months == 1 and value.parse_dur("2 years").months == 24, "symbolic months")
 check(value.to_display(value.parse_dur("14 months, 3 days")) == "1 year, 2 months, 3 days", "hybrid display")
 check(value.cmp(value.parse_dur("1 month"), value.parse_dur("29 days")) == 1, "approx ordering")
-check(value.to_display(value.arith("-", value.parse_date("2026-03-31"), value.parse_dur("1 month"))) == "2026-02-28", "month subtraction clamps")
+check(
+  value.to_display(value.arith("-", value.parse_date("2026-03-31"), value.parse_dur("1 month"))) == "2026-02-28",
+  "month subtraction clamps"
+)
 
 ---------------------------------------------------------------- regex
 group = "regex"
@@ -561,7 +586,10 @@ check(F.regexmatch(env, { "a@b.com", "\\w+@\\w+" }) == true, "literal @")
 
 ---------------------------------------------------------------- formats
 group = "formats"
-check(F.durationformat(env, { value.parse_dur("1 year, 2 months, 3 days"), "y'y' M'mo' d'd'" }) == "1y 2mo 3d", "durationformat tokens")
+check(
+  F.durationformat(env, { value.parse_dur("1 year, 2 months, 3 days"), "y'y' M'mo' d'd'" }) == "1y 2mo 3d",
+  "durationformat tokens"
+)
 check(F.durationformat(env, { value.parse_dur("90 minutes"), "h:mm" }) == "1:30", "durationformat padding")
 check(F.currencyformat(env, { 1234.5 }) == "$1,234.50", "currencyformat default USD")
 check(F.currencyformat(env, { -1234.5, "EUR" }) == "-\u{20ac}1,234.50", "currencyformat EUR negative")
@@ -574,7 +602,9 @@ local fd = io.open(tmp .. "/data.csv", "w")
 fd:write('name,score,when\n"Smith, J",9.5,2026-07-01\nDoe,7,2026-06-01\n')
 fd:close()
 fd = io.open(tmp .. "/.obsidian/bookmarks.json", "w")
-fd:write('{"items":[{"type":"file","path":"Journal/2026-07-01.md"},{"type":"group","items":[{"type":"file","path":"Papers/reading.md"}]}]}')
+fd:write(
+  '{"items":[{"type":"file","path":"Journal/2026-07-01.md"},{"type":"group","items":[{"type":"file","path":"Papers/reading.md"}]}]}'
+)
 fd:close()
 
 local cres = query.run('TABLE score, when FROM csv("data.csv") SORT score DESC', { index = {}, root = tmp })
@@ -604,8 +634,10 @@ check(sup2.fields.single == "uno", "single key stays scalar")
 -- list extraction: bullets and numbered outside fences/frontmatter only
 local listmd = tmp .. "/lists.md"
 fd = io.open(listmd, "w")
-fd:write("---\ntags:\n  - yaml-item\n---\n# H\n- uno\n  - dos\n3) tres\n```\n- fenced\n```\n"
-  .. "~~~~\n- tilde\n# not a heading\nfake:: field\n~~~\n~~~~\n- [ ] box\n")
+fd:write(
+  "---\ntags:\n  - yaml-item\n---\n# H\n- uno\n  - dos\n3) tres\n```\n- fenced\n```\n"
+    .. "~~~~\n- tilde\n# not a heading\nfake:: field\n~~~\n~~~~\n- [ ] box\n"
+)
 fd:close()
 local sup3 = idx_mod._extract_sup(listmd)
 check(#sup3.lists == 4, "yaml + fenced bullets excluded, box included")
@@ -619,8 +651,12 @@ vim.fn.delete(tmp, "rf")
 group = "toggle"
 local dv_engine = require("obsidian-query.dataview")
 for _, expr in ipairs({
-  "choice(true, false, true)", "default(null, false)", "first([false])", "last([false])",
-  "any([true], (t) => false)", "all([true], (t) => false)",
+  "choice(true, false, true)",
+  "default(null, false)",
+  "first([false])",
+  "last([false])",
+  "any([true], (t) => false)",
+  "all([true], (t) => false)",
   "any(file.tasks, (t) => t.completed AND !t.completed)",
 }) do
   check(ev(expr) == false, "false survives function result: " .. expr)
@@ -629,7 +665,9 @@ check(ev("none([true], (t) => false)") == true, "none respects a false predicate
 check(ev("first(sort([1, 2], (n) => n = 1)) = 2") == true, "sort preserves false keys")
 local completed_ctx = vim.deepcopy(CTX)
 for _, row in pairs(completed_ctx.index) do
-  for _, task in ipairs(row.tasks) do task.state = "x" end
+  for _, task in ipairs(row.tasks) do
+    task.state = "x"
+  end
 end
 local completed_result = query.run("TASK WHERE any(file.tasks, (t) => !t.completed)", completed_ctx)
 check(completed_result.ok and #completed_result.data.groups == 0, "TASK query empties when all tasks are completed")
@@ -646,8 +684,10 @@ check(dv_engine.toggle_task_line("2) [X] original", "original") == "2) [ ] origi
 local key_a = vim.api.nvim_create_buf(false, true)
 local key_b = vim.api.nvim_create_buf(false, true)
 local spec = dv_engine.parse("TASK WHERE file.path = this.file.path")
-check(dv_engine.key(spec, { root = ROOT, buf = key_a }) ~= dv_engine.key(spec, { root = ROOT, buf = key_b }),
-  "this-dependent queries have separate cache entries per note")
+check(
+  dv_engine.key(spec, { root = ROOT, buf = key_a }) ~= dv_engine.key(spec, { root = ROOT, buf = key_b }),
+  "this-dependent queries have separate cache entries per note"
+)
 vim.api.nvim_buf_delete(key_a, { force = true })
 vim.api.nvim_buf_delete(key_b, { force = true })
 
@@ -660,10 +700,20 @@ local picked, toggle, warning
 picker.open = function(_, items, opts)
   picked, toggle = items[1], opts.toggle
 end
-vim.notify = function(msg) warning = msg end
-dv_engine.pick({}, {}, { ok = true, data = { kind = "task", groups = { { items = {
-  { path = task_path, text = "original", line = 1, status = " ", completed = false },
-} } } } })
+vim.notify = function(msg)
+  warning = msg
+end
+dv_engine.pick({}, {}, {
+  ok = true,
+  data = {
+    kind = "task",
+    groups = {
+      { items = {
+        { path = task_path, text = "original", line = 1, status = " ", completed = false },
+      } },
+    },
+  },
+})
 check(toggle(picked) == true and vim.fn.readfile(task_path)[1] == "- [x] original", "picker persists completion")
 check(toggle(picked) == false and vim.fn.readfile(task_path)[1] == "- [ ] original", "picker persists reopening")
 local task_buf = vim.fn.bufnr(task_path)
@@ -683,17 +733,32 @@ local rows = { [index_path] = { stat = { mtime_sec = 10, mtime_nsec = 1, size = 
 local saved_cache, saved_obsidian = package.loaded["obsidian.cache"], _G.Obsidian
 _G.Obsidian = nil
 package.loaded["obsidian.cache"] = {
-  is_enabled = function() return true end,
-  when_ready = function(cb) cb() end,
-  notes = { all = function() return rows end },
+  is_enabled = function()
+    return true
+  end,
+  when_ready = function(cb)
+    cb()
+  end,
+  notes = {
+    all = function()
+      return rows
+    end,
+  },
 }
 local indexed
 vim.fn.writefile({ "- first" }, index_path)
-idx_mod.get({ root = index_root }, function(result) indexed = result end)
-check(indexed.sup[index_path].lists and indexed.sup[index_path].lists[1].text == "first", "index retains extracted lists")
+idx_mod.get({ root = index_root }, function(result)
+  indexed = result
+end)
+check(
+  indexed.sup[index_path].lists and indexed.sup[index_path].lists[1].text == "first",
+  "index retains extracted lists"
+)
 vim.fn.writefile({ "- other" }, index_path)
 rows[index_path].stat.mtime_nsec = 2
-idx_mod.get({ root = index_root }, function(result) indexed = result end)
+idx_mod.get({ root = index_root }, function(result)
+  indexed = result
+end)
 check(indexed.sup[index_path].lists[1].text == "other", "same-second edit refreshes supplement")
 local spage = page_mod.build(index_path, rows[index_path], { root = index_root })
 check(spage.file.size == 12 and spage.file.mtime.ts == 10, "page reads nested stat (size, mtime)")
@@ -704,12 +769,20 @@ rows = {
   [rel_root .. "/sub/peer.md"] = { stat = {} },
   [rel_root .. "/sub/source.md"] = { stat = {}, links_out = { { target = "peer.md", kind = "markdown" } } },
 }
-idx_mod.get({ root = rel_root }, function(result) indexed = result end)
-check(indexed.inlinks[rel_root .. "/sub/peer.md"] and not indexed.inlinks[rel_root .. "/peer.md"],
-  "markdown link resolves to the sibling note")
+idx_mod.get({ root = rel_root }, function(result)
+  indexed = result
+end)
+check(
+  indexed.inlinks[rel_root .. "/sub/peer.md"] and not indexed.inlinks[rel_root .. "/peer.md"],
+  "markdown link resolves to the sibling note"
+)
 local out_res = query.run("LIST FROM outgoing([[sub/source]])", { index = rows, root = rel_root })
-check(out_res.ok and #out_res.data.groups[1].items == 1 and out_res.data.groups[1].items[1].path == rel_root .. "/sub/peer.md",
-  "outgoing() resolves relative markdown targets")
+check(
+  out_res.ok
+    and #out_res.data.groups[1].items == 1
+    and out_res.data.groups[1].items[1].path == rel_root .. "/sub/peer.md",
+  "outgoing() resolves relative markdown targets"
+)
 package.loaded["obsidian.cache"], _G.Obsidian = saved_cache, saved_obsidian
 vim.fn.delete(index_path)
 
@@ -719,8 +792,10 @@ check(ev("file.mday = date(2026-07-01)") == true, "file.mday is a day value (mid
 local tomorrow = ev("date(tomorrow)")
 check(tomorrow.hour == 0 and tomorrow.day == 29, "date(tomorrow) is next local midnight")
 check(ev("date(eom)").day == 31 and ev("date(eom)").hour == 0, "date(eom) is the month's last midnight")
-check(ev('length(unique([1, 1, "1", date(2026-07-01), date(2026-07-01), [[a]], [[A]], [1], [1]]))') == 5,
-  "unique() dedupes scalars, dates, links and arrays")
+check(
+  ev('length(unique([1, 1, "1", date(2026-07-01), date(2026-07-01), [[a]], [[A]], [1], [1]]))') == 5,
+  "unique() dedupes scalars, dates, links and arrays"
+)
 check(F.regexreplace(env, { '"foo"', "\\b(foo)", "$1" }) == '"foo"', "\\b adds no capture group")
 check(F.regexreplace(env, { "a foo b", "(?<=a )(foo)", "[$1]" }) == "a [foo] b", "lookaround adds no capture group")
 res = run('TABLE x FROM "Journal" FLATTEN [] AS x')
@@ -733,7 +808,7 @@ for _, r in ipairs(res.data.rows) do
   false_id = false_id or r.id == false
 end
 check(res.ok and false_id, "false group key survives as the row ID")
-res = run('LIST WITHOUT ID file.name GROUP BY status')
+res = run("LIST WITHOUT ID file.name GROUP BY status")
 check(res.ok and res.data.groups[1].items[1].link == nil, "grouped LIST honours WITHOUT ID")
 res = run('TABLE length(rows) GROUP BY choice(priority = 1, ["a, b"], ["a", "b"])')
 check(res.ok and #res.data.rows == 2, "GROUP BY splits values that merely display alike")
@@ -796,27 +871,46 @@ do
   vim.api.nvim_buf_set_lines(note, 0, -1, false, { "```dataview", "TASK WHERE !completed", "```", "" })
   vim.api.nvim_set_current_buf(note)
   local lang, body = { text = "dataview" }, { text = "TASK WHERE !completed" }
-  local block = { range = function() return 0, 0, 3, 0 end }
+  local block = {
+    range = function()
+      return 0, 0, 3, 0
+    end,
+  }
   local fence_on = true
   vim.treesitter.query.parse = function()
-    return { captures = { "lang", "body", "block" }, iter_matches = function()
-      local done = false
-      return function()
-        if not done and fence_on then
-          done = true
-          return 1, { { lang }, { body }, { block } }
+    return {
+      captures = { "lang", "body", "block" },
+      iter_matches = function()
+        local done = false
+        return function()
+          if not done and fence_on then
+            done = true
+            return 1, { { lang }, { body }, { block } }
+          end
         end
-      end
-    end }
+      end,
+    }
   end
-  vim.treesitter.get_node_text = function(node) return node.text end
+  vim.treesitter.get_node_text = function(node)
+    return node.text
+  end
   package.loaded["obsidian-query.highlight"] = { attach = function() end }
-  package.loaded["obsidian.api"] = { find_workspace = function() return { path = ROOT, root = ROOT } end }
+  package.loaded["obsidian.api"] = {
+    find_workspace = function()
+      return { path = ROOT, root = ROOT }
+    end,
+  }
   _G.Obsidian = { workspace = { path = ROOT, root = ROOT }, dir = ROOT }
   local changed
-  package.loaded["obsidian.lsp.watchfiles"] = { register_handler = function(cb) changed = cb end }
+  package.loaded["obsidian.lsp.watchfiles"] = {
+    register_handler = function(cb)
+      changed = cb
+    end,
+  }
   local rows = vim.deepcopy(INDEX)
-  idx_mod.get = function(_, cb) cb({ rows = rows, sup = SUP, inlinks = INLINKS }) end
+  idx_mod.get = function(_, cb)
+    cb({ rows = rows, sup = SUP, inlinks = INLINKS })
+  end
   base.retry = function() end -- model the bounded retries having expired
   local core = require("obsidian-query")
   local count
@@ -825,19 +919,30 @@ do
     local lines = marks[1].opts.virt_lines
     count = lines[#lines][2][1]
   end
-  package.loaded["render-markdown.api"] = { render = function()
-    if vim.api.nvim_get_current_buf() == note then draw() end
-  end }
+  package.loaded["render-markdown.api"] = {
+    render = function()
+      if vim.api.nvim_get_current_buf() == note then
+        draw()
+      end
+    end,
+  }
   draw()
   check(count == "1 tasks", "initial remaining task count")
   local picker_buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_set_current_buf(picker_buf)
   rows[ROOT .. "/Journal/2026-07-01.md"].tasks[1].state = "x"
   changed()
-  vim.wait(20, function() return false end)
+  vim.wait(20, function()
+    return false
+  end)
   check(count == "1 tasks", "refresh skipped while picker was open")
   vim.api.nvim_set_current_buf(note)
-  check(vim.wait(200, function() return count == "0 tasks" end), "closing picker refreshes remaining count")
+  check(
+    vim.wait(200, function()
+      return count == "0 tasks"
+    end),
+    "closing picker refreshes remaining count"
+  )
   local fetches = 0
   idx_mod.get = function(_, cb)
     fetches = fetches + 1
@@ -845,7 +950,9 @@ do
   end
   vim.api.nvim_set_current_buf(picker_buf)
   vim.api.nvim_set_current_buf(note)
-  vim.wait(20, function() return false end)
+  vim.wait(20, function()
+    return false
+  end)
   check(fetches == 0, "entering an unchanged note reruns no query")
   fence_on = false
   core.parse({ buf = note })
@@ -858,7 +965,9 @@ do
   vim.api.nvim_buf_delete(note, { force = true })
   vim.treesitter.query.parse, vim.treesitter.get_node_text = saved_ts, saved_text
   base.retry, idx_mod.get, _G.Obsidian = saved_retry, saved_get, saved_ob
-  for name, module in pairs(modules) do package.loaded[name] = module or nil end
+  for name, module in pairs(modules) do
+    package.loaded[name] = module or nil
+  end
 end
 
 -- A write landing while the inline index request is in flight must leave the
@@ -872,7 +981,9 @@ do
   package.loaded["render-markdown.api"] = { render = function() end }
   base.retry = function() end
   local path = ROOT .. "/Journal/2026-07-01.md"
-  core.buf_root = function() return ROOT end
+  core.buf_root = function()
+    return ROOT
+  end
   local calls, pending_cb = 0, nil
   idx_mod.get = function(_, cb)
     calls = calls + 1

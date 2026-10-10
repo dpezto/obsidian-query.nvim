@@ -757,11 +757,12 @@ do
   vim.api.nvim_set_current_buf(note)
   local lang, body = { text = "dataview" }, { text = "TASK WHERE !completed" }
   local block = { range = function() return 0, 0, 3, 0 end }
+  local fence_on = true
   vim.treesitter.query.parse = function()
     return { captures = { "lang", "body", "block" }, iter_matches = function()
       local done = false
       return function()
-        if not done then
+        if not done and fence_on then
           done = true
           return 1, { { lang }, { body }, { block } }
         end
@@ -797,6 +798,17 @@ do
   check(count == "1 tasks", "refresh skipped while picker was open")
   vim.api.nvim_set_current_buf(note)
   check(vim.wait(200, function() return count == "0 tasks" end), "closing picker refreshes remaining count")
+  local fetches = 0
+  idx_mod.get = function(_, cb)
+    fetches = fetches + 1
+    cb({ rows = rows, sup = SUP, inlinks = INLINKS })
+  end
+  fence_on = false
+  core.parse({ buf = note })
+  fence_on = true
+  local before = fetches
+  draw()
+  check(fetches == before + 1, "a fence gone from the buffer releases its cache entry")
   vim.api.nvim_del_augroup_by_name("obsidian_query_stale")
   vim.api.nvim_buf_delete(picker_buf, { force = true })
   vim.api.nvim_buf_delete(note, { force = true })

@@ -153,6 +153,22 @@ function mark_all_stale()
   end
 end
 
+---Drop `buf` from every entry except the `keep` keys; entries no buffer
+---references any more go away with their results.
+local function release(buf, keep)
+  for key, entry in pairs(cache) do
+    if entry.bufs[buf] and not (keep and keep[key]) then
+      entry.bufs[buf] = nil
+      if not next(entry.bufs) then
+        cache[key] = nil
+      end
+    end
+  end
+end
+
+-- buf -> keys parsed in the current render pass (accumulated across roots)
+local live = {}
+
 ---Nudge every buffer holding a stale query fence: a note edited elsewhere
 ---changes results in buffers that saw no event of their own, and without a
 ---parse pass nothing would refetch them. Retried — render-markdown drops
@@ -197,6 +213,13 @@ local function mark_stale_on_change()
       rerender_all()
     end,
   })
+  vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
+    group = group,
+    callback = function(ev)
+      live[ev.buf] = nil
+      release(ev.buf)
+    end,
+  })
   -- BufWritePost alone is a trap: obsidian.nvim reindexes a note only when its
   -- LSP file watcher reports the write, so a refetch fired straight from the
   -- write reads the OLD row, stores it and clears the stale flag — results then
@@ -234,8 +257,8 @@ local function refetch(engine, key, spec, ctx)
   local token = {}
   entry.fetching = token
   engine.run(spec, ctx, function(result)
-    -- superseded: a workspace switch reset this request
-    if not cache[key] or entry.fetching ~= token then
+    -- entry released, or this request superseded (workspace switch reset it)
+    if cache[key] ~= entry or entry.fetching ~= token then
       return
     end
     if result == nil then
@@ -292,6 +315,8 @@ function M.parse(ctx)
   require("obsidian-query.highlight").attach(ctx.buf)
   local query = get_query()
   local marks = {}
+  local seen = live[ctx.buf] or {}
+  live[ctx.buf] = seen
   for _, match in query:iter_matches(ctx.root, ctx.buf) do
     local lang, body, block
     -- iter_matches yields TSNode[] per capture (nvim 0.11+); the fence query
@@ -318,6 +343,7 @@ function M.parse(ctx)
           cache[key] = entry
         end
         entry.bufs[ctx.buf] = true
+        seen[key] = true
         if not entry.fetching and (not entry.result or entry.stale) then
           refetch(engine, key, spec, qctx)
         end
@@ -338,6 +364,11 @@ function M.parse(ctx)
         marks[#marks + 1] = mark
       end
     end
+  end
+  -- last root of the pass: fences edited away or deleted release their entries
+  if ctx.last ~= false then
+    live[ctx.buf] = nil
+    release(ctx.buf, seen)
   end
   return marks
 end

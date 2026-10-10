@@ -700,6 +700,11 @@ check(spage.file.size == 12 and spage.file.mtime.ts == 10, "page reads nested st
 package.loaded["obsidian.cache"], _G.Obsidian = saved_cache, saved_obsidian
 vim.fn.delete(index_path)
 
+---------------------------------------------------------------- audit regressions
+group = "audit"
+check(F.regexreplace(env, { '"foo"', "\\b(foo)", "$1" }) == '"foo"', "\\b adds no capture group")
+check(F.regexreplace(env, { "a foo b", "(?<=a )(foo)", "[$1]" }) == "a [foo] b", "lookaround adds no capture group")
+
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"
 local base = require("obsidian-query.render")

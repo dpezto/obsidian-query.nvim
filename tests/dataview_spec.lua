@@ -719,6 +719,8 @@ check(ev("file.mday = date(2026-07-01)") == true, "file.mday is a day value (mid
 local tomorrow = ev("date(tomorrow)")
 check(tomorrow.hour == 0 and tomorrow.day == 29, "date(tomorrow) is next local midnight")
 check(ev("date(eom)").day == 31 and ev("date(eom)").hour == 0, "date(eom) is the month's last midnight")
+check(ev('length(unique([1, 1, "1", date(2026-07-01), date(2026-07-01), [[a]], [[A]], [1], [1]]))') == 5,
+  "unique() dedupes scalars, dates, links and arrays")
 check(F.regexreplace(env, { '"foo"', "\\b(foo)", "$1" }) == '"foo"', "\\b adds no capture group")
 check(F.regexreplace(env, { "a foo b", "(?<=a )(foo)", "[$1]" }) == "a [foo] b", "lookaround adds no capture group")
 res = run('TABLE x FROM "Journal" FLATTEN [] AS x')

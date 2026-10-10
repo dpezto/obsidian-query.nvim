@@ -228,6 +228,7 @@ end
 local function norm_link_path(l)
   return (l.path:lower():gsub("%.md$", "")) .. "\0" .. (l.subpath or "")
 end
+M.link_key = norm_link_path -- eq identity of a link (unique() hashes on it)
 
 local TYPE_RANK = {
   null = 0,

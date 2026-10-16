@@ -369,11 +369,15 @@ R.last = function(_, args)
   return #a == 0 and NULL or a[#a]
 end
 R.reverse = function(_, args)
-  local a, out = as_array(args[1]), {}
+  local kind = T(args[1])
+  if kind ~= "array" and kind ~= "string" then
+    return args[1]
+  end
+  local a, out = kind == "string" and vim.fn.split(args[1], "\\zs") or args[1], {}
   for i = #a, 1, -1 do
     out[#out + 1] = a[i]
   end
-  return value.array(out)
+  return kind == "string" and table.concat(out) or value.array(out)
 end
 R.sort = function(_, args)
   local a = vim.list_slice(as_array(args[1]))
@@ -483,25 +487,45 @@ R.filter = function(_, args)
   return value.array(out)
 end
 R.slice = function(_, args)
-  local a = as_array(args[1])
-  local from = (T(args[2]) == "number" and args[2] or 0) + 1
-  local to = T(args[3]) == "number" and args[3] or #a
-  return value.array(vim.list_slice(a, from, to))
+  if T(args[1]) ~= "array" then
+    return NULL
+  end
+  local a = args[1]
+  local function bound(n, default)
+    if T(n) ~= "number" then
+      return default
+    end
+    n = n < 0 and math.ceil(n) or math.floor(n)
+    return math.max(0, math.min(#a, n < 0 and #a + n or n))
+  end
+  local out = {}
+  for i = bound(args[2], 0) + 1, bound(args[3], #a) do
+    out[#out + 1] = a[i]
+  end
+  return value.array(out)
 end
+
 R.nonnull = function(_, args)
   local out = {}
-  for _, el in ipairs(as_array(args[1])) do
+  for _, el in ipairs(#args == 1 and T(args[1]) == "array" and args[1] or args) do
     if T(el) ~= "null" then
       out[#out + 1] = el
     end
   end
   return value.array(out)
 end
+local function predicate_args(args)
+  if T(args[1]) == "array" and (#args == 1 or (#args == 2 and type(args[2]) == "function")) then
+    return args[1], args[2]
+  end
+  return args
+end
 R.any = function(_, args)
-  for _, el in ipairs(as_array(args[1])) do
+  local array, predicate = predicate_args(args)
+  for _, el in ipairs(array) do
     local v = el
-    if type(args[2]) == "function" then
-      v = args[2]({ el })
+    if predicate then
+      v = predicate({ el })
     end
     if value.truthy(v) then
       return true
@@ -513,10 +537,11 @@ R.none = function(env, args)
   return not R.any(env, args)
 end
 R.all = function(_, args)
-  for _, el in ipairs(as_array(args[1])) do
+  local array, predicate = predicate_args(args)
+  for _, el in ipairs(array) do
     local v = el
-    if type(args[2]) == "function" then
-      v = args[2]({ el })
+    if predicate then
+      v = predicate({ el })
     end
     if not value.truthy(v) then
       return false
@@ -524,21 +549,22 @@ R.all = function(_, args)
   end
   return true
 end
-R.sum = function(_, args)
-  local acc = NULL
-  for _, el in ipairs(as_array(args[1])) do
-    acc = T(acc) == "null" and el or value.arith("+", acc, el)
+R.sum = function(env, args)
+  if T(args[1]) ~= "array" then
+    return args[1]
   end
-  return acc
+  return R.reduce(env, { args[1], "+" })
 end
-R.average = function(_, args)
-  local a = as_array(args[1])
-  if #a == 0 then
+R.average = function(env, args)
+  if T(args[1]) ~= "array" then
+    return args[1]
+  end
+  if #args[1] == 0 then
     return NULL
   end
-  local s = R.sum(_, { a })
-  return value.arith("/", s, #a)
+  return value.arith("/", R.sum(env, args), #args[1])
 end
+
 R.min = function(_, args)
   local a = #args > 1 and args or as_array(args[1])
   local best = NULL
@@ -570,6 +596,9 @@ R.minby = function(_, args)
       best, bestkey = el, k
     end
   end
+  if best == NULL and T(args[1]) == "array" and #args[1] > 0 then
+    return args[1][1]
+  end
   return best
 end
 R.maxby = function(_, args)
@@ -582,6 +611,9 @@ R.maxby = function(_, args)
     if T(k) ~= "null" and (T(bestkey) == "null" or value.cmp(k, bestkey) > 0) then
       best, bestkey = el, k
     end
+  end
+  if best == NULL and T(args[1]) == "array" and #args[1] > 0 then
+    return args[1][1]
   end
   return best
 end
@@ -756,27 +788,27 @@ R.elink = function(_, args)
   end
   return value.link(args[1], { display = T(args[2]) == "string" and args[2] or args[1] })
 end
-R.embed = function(_, args)
-  return args[1]
-end
+R.embed = vectorize(function(_, args)
+  if T(args[1]) ~= "link" then
+    return NULL
+  end
+  return value.link(args[1].path, vim.tbl_extend("force", {}, args[1], { embed = args[2] == nil or args[2] == true }))
+end)
 R.containsword = str_fn(function(s, w)
   if T(w) ~= "string" then
     return NULL
   end
   return s:lower():find("%f[%w]" .. vim.pesc(w:lower()) .. "%f[%W]") ~= nil
 end)
-R.extract = function(_, args)
-  if T(args[1]) ~= "object" then
-    return NULL
-  end
+R.extract = vectorize(function(env, args)
   local out = {}
   for i = 2, #args do
     if T(args[i]) == "string" then
-      out[args[i]] = args[1][args[i]]
+      out[args[i]] = require("obsidian-query.dataview.eval").index(args[1], args[i], env)
     end
   end
   return out
-end
+end)
 R.hash = function(_, args)
   return vim.fn.sha256(value.to_display(args[1])):sub(1, 8)
 end

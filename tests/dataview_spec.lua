@@ -1165,6 +1165,20 @@ check(
 )
 check(ordered_groups.data.rows[1].cells[1] == "done", "GROUP BY exposes unaliased expression name")
 
+group = "collection functions"
+check(ev('reverse("café")') == "éfac", "reverse preserves UTF-8 string characters")
+check(value.eq(ev("slice([1, 2, 3, 4], -3, -1)"), value.array({ 2, 3 })), "slice supports negative bounds")
+check(value.eq(ev("nonnull(null, 2, false)"), value.array({ 2, false })), "nonnull accepts varargs")
+check(ev("any(false, true)") == true and ev("all(true, false)") == false, "boolean aggregates accept varargs")
+check(ev("sum([1, null, 2])") == value.NULL, "sum does not reset accumulation after null")
+check(ev("average(4)") == 4 and ev("average([])") == value.NULL, "average scalar and empty array")
+check(ev('extract([[2026-07-10]], "status").status') == value.NULL, "unresolved extract without resolver returns null")
+local extracted = run('TABLE extract([[2026-07-10]], "status") LIMIT 1')
+check(extracted.data.rows[1].cells[1].status == "done", "extract dereferences links")
+check(ev("meta(embed([[x]])).embed") == true, "embed sets link metadata")
+check(ev("minby([1, 2], (x) => null)") == 1, "minby keeps first element when all keys null")
+check(ev("maxby([false, true], (x) => null)") == false, "maxby preserves false first element")
+
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"
 local base = require("obsidian-query.render")

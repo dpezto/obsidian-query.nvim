@@ -499,7 +499,7 @@ malformed input renders an error line (fences) or nothing (inline), never
 a Lua error.
 
 Evaluation: the search engine uses ripgrep to prefilter required positive
-content literals, then evaluates the full query. File contents and results
+literals, retaining filename candidates for bare terms, then evaluates the full query. File contents and results
 are cached by path, full mtime and size. The dataview engine shares a vault
 index and page objects across fences and inline values for each invalidation
 generation. Supplements add inline fields, headers, lists and bookmarks.

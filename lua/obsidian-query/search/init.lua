@@ -257,8 +257,7 @@ function M.lines(result)
   if result.error then
     return { { { "▏ query: " .. result.error, "DiagnosticError" } } }
   end
-  -- structural queries (tag/path/prop only) render one line per note;
-  -- content-bearing queries also show their matched lines
+  -- Match contexts follow their file title, including structural tag matches.
   local lines = {}
   for fi = 1, math.min(#result.files, max_notes()) do
     local f = result.files[fi]

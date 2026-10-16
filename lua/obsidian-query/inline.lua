@@ -1,7 +1,7 @@
 -- Inline `= expr` queries: markdown_inline custom handler evaluating dataview
 -- expressions in code spans against the note's own page. Result overlays the
 -- span as inline virt_text; raw span reappears on the cursor row (anti-conceal)
--- and errors/null render nothing — prose never grows error banners.
+-- Errors render nothing; nulls use Dataview's configured placeholder.
 local M = {}
 
 local idx ---@type table? cached obsidian-query.index result

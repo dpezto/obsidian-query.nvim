@@ -214,7 +214,7 @@ function M.build_tasks(abs_path, cache_tasks, headers, rel, ctx)
 end
 
 ---file.lists: every list item (Dataview semantics — tasks included). Checkbox
----items reuse their task object; plain bullets get a light sibling shape.
+---items reuse their task object; plain bullets join the same hierarchy.
 ---Falls back to tasks alone when the supplement predates list indexing.
 ---@param sup {lists?: {line: integer, indent: integer, text: string}[], headers: table[]}
 ---@param tasks table value.array of tasks

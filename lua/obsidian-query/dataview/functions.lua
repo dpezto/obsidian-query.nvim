@@ -810,7 +810,34 @@ R.extract = vectorize(function(env, args)
   return out
 end)
 R.hash = function(_, args)
-  return vim.fn.sha256(value.to_display(args[1])):sub(1, 8)
+  if T(args[1]) ~= "string" or (T(args[2]) ~= "string" and T(args[2]) ~= "number") then
+    return NULL
+  end
+  local text = args[1] .. (T(args[2]) == "string" and args[2] or "")
+  local seed = T(args[2]) == "number" and args[2] or (T(args[3]) == "number" and args[3] or 0)
+  local bit = require("bit")
+  local function imul(a, b)
+    local lo = bit.band(a, 65535) * bit.band(b, 65535)
+    local hi = bit.rshift(a, 16) * bit.band(b, 65535) + bit.band(a, 65535) * bit.rshift(b, 16)
+    return bit.tobit(lo + bit.lshift(hi, 16))
+  end
+  local h1, h2 = bit.bxor(0xdeadbeef, seed), bit.bxor(0x41c6ce57, seed)
+  local function add(ch)
+    h1 = imul(bit.bxor(h1, ch), 2654435761)
+    h2 = imul(bit.bxor(h2, ch), 1597334677)
+  end
+  for _, ch in ipairs(vim.fn.str2list(text, true)) do
+    if ch > 65535 then
+      ch = ch - 65536
+      add(55296 + math.floor(ch / 1024))
+      add(56320 + ch % 1024)
+    else
+      add(ch)
+    end
+  end
+  h1 = bit.bxor(imul(bit.bxor(h1, bit.rshift(h1, 16)), 2246822507), imul(bit.bxor(h2, bit.rshift(h2, 13)), 3266489909))
+  h2 = bit.bxor(imul(bit.bxor(h2, bit.rshift(h2, 16)), 2246822507), imul(bit.bxor(h1, bit.rshift(h1, 13)), 3266489909))
+  return 4294967296 * bit.band(h2, 2097151) + (h1 < 0 and h1 + 4294967296 or h1)
 end
 
 return M

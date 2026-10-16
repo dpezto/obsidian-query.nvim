@@ -1474,4 +1474,12 @@ do
   package.loaded["obsidian.cache"], _G.Obsidian = saved_cache, saved_ob
 end
 
+do
+  group = "hash parity"
+  check(ev('hash("hello", 0)') == 4625896200565286, "hash matches bundled cyrb53")
+  check(ev('hash("hello", 7)') == 5198064567490728, "hash accepts numeric variant")
+  check(ev('hash("hel", "lo")') == ev('hash("hello", 0)'), "hash concatenates string seed and text")
+  check(ev('hash("café🧪", 0)') == 1515590994826948, "hash uses UTF-16 code units")
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

@@ -127,7 +127,7 @@ path:Projects task-todo:draft OR task-todo:press
 Search supports words, quoted phrases, regex, `OR`, `-` negation, and groups.
 Use `tag:`, `path:`, `file:`, or `[property:value]` to narrow results;
 `line:(...)`, `section:(...)`, and `block:(...)` restrict where terms match.
-Lowercase terms ignore case; uppercase letters make a plain-text term case-sensitive.
+Embedded searches ignore case by default. Use `match-case:(...)` for exact case.
 
 ### Calendar heat map
 

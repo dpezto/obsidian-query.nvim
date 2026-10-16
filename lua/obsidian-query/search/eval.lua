@@ -3,8 +3,7 @@
 -- eval.note(path, rel, content) -> Note   (lazy fm/tags/sections/blocks/tasks)
 -- eval.run(ast, note)           -> ok: boolean, locs: {lnum, col, text}[]
 --
--- Case: Obsidian smart case — term with an uppercase letter is case-sensitive,
--- else insensitive; match-case:/ignore-case: force it for their subtree.
+-- Embedded search ignores case by default; match-case:/ignore-case: override it.
 local M = {}
 
 ---------------------------------------------------------------- note model
@@ -204,9 +203,9 @@ end
 ---------------------------------------------------------------- text matching
 
 local function find_plain(text, term, case, start)
-  local sensitive = case == "sensitive" or (case == "smart" and term:match("%u") ~= nil)
-  local hay = sensitive and text or text:lower()
-  local needle = sensitive and term or term:lower()
+  local sensitive = case == "sensitive"
+  local hay = sensitive and text or vim.fn.tolower(text)
+  local needle = sensitive and term or vim.fn.tolower(term)
   if needle == "" then
     return 1
   end
@@ -406,7 +405,7 @@ end
 
 ---@param ast table
 ---@param note table
----@param case "smart"|"sensitive"|"insensitive"
+---@param case "sensitive"|"insensitive"
 ---@return boolean ok
 ---@return table locs
 eval_node = function(ast, note, case)
@@ -451,9 +450,9 @@ eval_node = function(ast, note, case)
     elseif n == "task" or n == "task-todo" or n == "task-done" then
       return eval_scoped(arg, note, task_texts(note, n), case)
     elseif n == "match-case" then
-      return eval_scoped(arg, note, content_texts(note), "sensitive")
+      return eval_scoped(arg, note, nil, "sensitive")
     elseif n == "ignore-case" then
-      return eval_scoped(arg, note, content_texts(note), "insensitive")
+      return eval_scoped(arg, note, nil, "insensitive")
     end
   end
   return false, {}
@@ -462,7 +461,7 @@ end
 ---@return boolean ok
 ---@return {lnum: integer, col: integer, text: string}[] locs (sorted, deduped by line)
 function M.run(ast, note)
-  local ok, locs = eval_node(ast, note, "smart")
+  local ok, locs = eval_node(ast, note, "insensitive")
   if not ok then
     return false, {}
   end

@@ -228,8 +228,8 @@ The full core-Search language inside ```query fences: terms, "phrases",
   task: task-todo: task-done: match-case:() ignore-case:()
   [property] [property:value]
 
-Matching is smart-case, like Obsidian: lowercase terms match
-case-insensitively, any uppercase makes the term case-sensitive.
+Matching is case-insensitive by default, including uppercase terms and
+regular expressions. match-case:() requests case-sensitive matching.
 
 Every vault file is matchable by path:/file:/bare filename : attachments
 included; content operators only ever hit notes. Results sort by basename, ignoring case and ordering digit runs numerically.

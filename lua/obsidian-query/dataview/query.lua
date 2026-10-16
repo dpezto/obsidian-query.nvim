@@ -278,6 +278,9 @@ local function run_commands(rows, cmds, ctx)
         table.insert(bucket.members, row)
       end
       local grouped = {}
+      table.sort(order, function(a, b)
+        return value.cmp(a.key, b.key) < 0
+      end)
       for _, bucket in ipairs(order) do
         local g = {
           key = bucket.key,

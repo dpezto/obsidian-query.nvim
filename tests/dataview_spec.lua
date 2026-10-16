@@ -947,7 +947,7 @@ for _, kind in ipairs({ "TABLE status", "LIST", "TASK" }) do
 end
 local grouped_list = run("LIST length(rows) GROUP BY status")
 check(#grouped_list.data.groups == 1 and #grouped_list.data.groups[1].items == 2, "grouped LIST projects group rows")
-check(grouped_list.data.groups[1].items[1].text == 1, "grouped LIST evaluates length(rows) on group")
+check(grouped_list.data.groups[1].items[1].text == 2, "grouped LIST evaluates length(rows) on group")
 local grouped_false = run("LIST GROUP BY priority = 1")
 check(grouped_false.data.groups[1].items[1].link == false, "grouped LIST preserves false key")
 local grouped_table = run("TABLE length(rows) GROUP BY status")
@@ -1156,6 +1156,14 @@ check(
 )
 check(not value.eq(value.link("missing"), value.link("MISSING")), "unresolved links are case-sensitive")
 check(not value.eq(value.link("a#H"), value.link("a#^H")), "header and block links have different identities")
+
+group = "group order"
+local ordered_groups = run("TABLE status, length(rows) GROUP BY status")
+check(
+  ordered_groups.data.rows[1].id == "done" and ordered_groups.data.rows[2].id == "open",
+  "GROUP BY sorts keys ascending"
+)
+check(ordered_groups.data.rows[1].cells[1] == "done", "GROUP BY exposes unaliased expression name")
 
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"

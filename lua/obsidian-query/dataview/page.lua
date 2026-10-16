@@ -283,4 +283,12 @@ function M.build(abs_path, row, ctx)
   return page
 end
 
+function M.get(path, ctx)
+  ctx.pages = ctx.pages or {}
+  if not ctx.pages[path] and ctx.index[path] then
+    ctx.pages[path] = M.build(path, ctx.index[path], ctx)
+  end
+  return ctx.pages[path]
+end
+
 return M

@@ -820,6 +820,22 @@ check(res.ok and res.data.groups[1].items[1].link == nil, "grouped LIST honours 
 res = run('TABLE length(rows) GROUP BY choice(priority = 1, ["a, b"], ["a", "b"])')
 check(res.ok and #res.data.rows == 2, "GROUP BY splits values that merely display alike")
 
+group = "link dereference"
+local deref = run('TABLE [[2026-07-10]].status, file.inlinks.status FROM "Journal/2026-07-01"')
+check(deref.ok and deref.data.rows[1].cells[1] == "done", "link literal dereferences to page")
+check(deref.data.rows[1].cells[2][1] == "done", "inlinks swizzle dereferences pages")
+deref = run("TABLE rows.file.link.status GROUP BY status")
+check(deref.ok and deref.data.rows[1].cells[1][1] ~= value.NULL, "grouped rows swizzle dereferences links")
+deref = run("TABLE [[missing]].status, [[2026-07-10]].path LIMIT 1")
+check(
+  deref.ok and deref.data.rows[1].cells[1] == value.NULL and deref.data.rows[1].cells[2] == value.NULL,
+  "missing pages and link metadata index return null"
+)
+local projectctx = vim.deepcopy(CTX)
+projectctx.index[ROOT .. "/Papers/reading.md"].properties.project = "[[2026-07-10]]"
+deref = query.run('TABLE project.status FROM "Papers"', projectctx)
+check(deref.ok and deref.data.rows[1].cells[1] == "done", "frontmatter link dereference")
+
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"
 local base = require("obsidian-query.render")

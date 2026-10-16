@@ -164,7 +164,6 @@ function M.parse(ctx)
   shown_gen = idx_gen
   local eval = require("obsidian-query.dataview.eval")
   local value = require("obsidian-query.dataview.value")
-  local functions = require("obsidian-query.dataview.functions")
   for _, span in ipairs(spans) do
     local ast = expr_cache[span.expr]
     if ast == nil then
@@ -172,7 +171,17 @@ function M.parse(ctx)
       expr_cache[span.expr] = ast
     end
     if ast then
-      local result = eval.expr(ast, { page = page, this = page, funcs = functions.registry })
+      local qctx = {
+        index = index.rows,
+        root = root,
+        sup = index.sup,
+        inlinks = index.inlinks,
+        starred = index.starred,
+        this_path = path,
+        this = page,
+        resolve = index.resolve or require("obsidian-query.index").make_resolver(index.rows),
+      }
+      local result = eval.expr(ast, require("obsidian-query.dataview.query").env(page, qctx))
       local display = value.to_display(result)
       if display ~= "" then
         local srow, scol, erow, ecol = span.node:range()

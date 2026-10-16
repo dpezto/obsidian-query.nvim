@@ -14,15 +14,19 @@ local function norm(v)
 end
 
 ---index on arrays with a string key = element-wise swizzle (rows.file.link)
-function M.index(obj, key)
+function M.index(obj, key, env)
   local t = value.typeof(obj)
   if t == "null" then
     return NULL
   end
+  if t == "link" then
+    local page = env and env.resolve_page and env.resolve_page(obj.path)
+    return type(key) == "string" and norm(page and page[key]) or NULL
+  end
   if t == "array" and type(key) == "string" then
     local out = {}
     for _, el in ipairs(obj) do
-      out[#out + 1] = M.index(el, key)
+      out[#out + 1] = M.index(el, key, env)
     end
     return value.array(out)
   end
@@ -121,7 +125,7 @@ eval_node = function(ast, env)
     if value.typeof(key) == "null" then
       return NULL
     end
-    return M.index(obj, key)
+    return M.index(obj, key, env)
   elseif k == "call" then
     local fn = eval_node(ast.fn, env)
     if type(fn) ~= "function" then

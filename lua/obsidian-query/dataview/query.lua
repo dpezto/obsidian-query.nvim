@@ -195,9 +195,19 @@ local function overlay(base, binds)
   return setmetatable(binds, { __index = base })
 end
 
-local function row_env(row, ctx)
-  return { page = row, this = ctx.this or NULL, funcs = functions.registry, now = ctx.now }
+function M.env(row, ctx)
+  return {
+    page = row,
+    this = ctx.this or NULL,
+    funcs = functions.registry,
+    now = ctx.now,
+    resolve_page = function(target)
+      local path = ctx.resolve(target, ctx.root, ctx.this_path)
+      return path and page_mod.get(path, ctx)
+    end,
+  }
 end
+local row_env = M.env
 
 local function default_alias(src_text)
   return (src_text or "value"):match("([%w_%-]+)%s*$") or "value"
@@ -469,11 +479,11 @@ function M.run(src, ctx)
       table.sort(paths)
       rows = {}
       for _, path in ipairs(paths) do
-        rows[#rows + 1] = page_mod.build(path, ctx.index[path], ctx)
+        rows[#rows + 1] = page_mod.get(path, ctx)
       end
     end
     if ctx.this_path and ctx.index[ctx.this_path] then
-      ctx.this = page_mod.build(ctx.this_path, ctx.index[ctx.this_path], ctx)
+      ctx.this = page_mod.get(ctx.this_path, ctx)
     end
     -- TASK: explode to task overlay rows BEFORE commands (dataview semantics)
     if ast.header.kind == "task" then

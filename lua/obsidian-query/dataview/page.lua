@@ -236,10 +236,24 @@ function M.build(abs_path, row, ctx)
     day = value.typeof(fm.date) == "date" and fm.date or NULL
   end
 
-  local outlinks = {}
+  local outlinks, seen_links = {}, {}
   for _, l in ipairs(row.links_out or {}) do
     if l.target and l.target ~= "" then
-      outlinks[#outlinks + 1] = value.normalize_link(value.link(l.target, { display = l.label }), ctx, abs_path)
+      local link = value.normalize_link(
+        value.link(l.target, {
+          display = l.label,
+          subpath = l.block or l.anchor,
+          kind = l.block and "block" or (l.anchor and "header" or "file"),
+          embed = l.embed,
+        }),
+        ctx,
+        abs_path,
+        l.kind == "markdown"
+      )
+      local key = value.link_key(link)
+      if not seen_links[key] then
+        outlinks[#outlinks + 1], seen_links[key] = link, true
+      end
     end
   end
   local inlinks = {}

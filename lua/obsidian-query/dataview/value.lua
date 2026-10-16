@@ -129,8 +129,8 @@ function M.link(path, opts)
   }, link_mt)
 end
 
-function M.normalize_link(link, ctx, source)
-  local path = ctx and ctx.resolve and ctx.resolve(link.path, ctx.root, source)
+function M.normalize_link(link, ctx, source, relative)
+  local path = ctx and ctx.resolve and ctx.resolve(link.path, ctx.root, source, relative)
   if not path then
     return link
   end

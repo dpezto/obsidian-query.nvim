@@ -22,7 +22,7 @@ local function resolve_link_path(raw, ctx, source)
   if target == "" then
     return ctx.this_path
   end
-  return ctx.resolve(target, ctx.root, source)
+  return ctx.resolve(target, ctx.root, source or ctx.this_path, source ~= nil)
 end
 
 local function source_set(src, ctx)

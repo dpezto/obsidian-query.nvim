@@ -133,28 +133,67 @@ M._extract_sup = extract_sup
 
 ---Resolve a links_out target (note name or rel path) to an absolute path.
 function M.make_resolver(rows)
-  local by_name = {}
+  local by_name, by_path = {}, {}
   for path in pairs(rows) do
-    by_name[vim.fn.fnamemodify(path, ":t:r"):lower()] = path
-    by_name[vim.fn.fnamemodify(path, ":t"):lower()] = path
+    local name = vim.fn.tolower(vim.fn.fnamemodify(path, ":t"))
+    by_name[name] = by_name[name] or {}
+    by_name[name][#by_name[name] + 1] = path
+    by_path[vim.fn.tolower(path)] = path
   end
-  ---@param source string? linking note; markdown links resolve against its folder first
-  return function(target, root, source)
-    if not target or target == "" then
+  for _, paths in pairs(by_name) do
+    table.sort(paths, function(a, b)
+      return #a < #b or (#a == #b and a < b)
+    end)
+  end
+  local function exact(path)
+    path = vim.fn.tolower(vim.fs.normalize(path))
+    return by_path[path] or by_path[path .. ".md"]
+  end
+  return function(target, root, source, relative)
+    if not target then
       return nil
     end
-    target = target:gsub("#.*$", ""):gsub("%s+$", "")
-    if source then
-      local rel = vim.fs.normalize(vim.fs.dirname(source) .. "/" .. target)
-      if rows[rel] or rows[rel .. ".md"] then
-        return rows[rel] and rel or (rel .. ".md")
+    target = vim.trim(target:gsub("[|#].*$", ""))
+    if target == "" then
+      return source and rows[source] and source or nil
+    end
+    if target:match("^%a[%w+%.%-]*:") then
+      return nil
+    end
+    if relative then
+      target = vim.uri_decode(target)
+    end
+    if source and (relative or target:match("^%.%./") or target:match("^%./")) then
+      local path = exact(vim.fs.dirname(source) .. "/" .. target)
+      if path then
+        return path
       end
     end
-    local direct = root .. "/" .. target
-    if rows[direct] or rows[direct .. ".md"] then
-      return rows[direct] and direct or (direct .. ".md")
+    local path = exact(root .. "/" .. target:gsub("^/", ""))
+    if path then
+      return path
     end
-    return by_name[vim.fn.fnamemodify(target, ":t:r"):lower()]
+    if target:sub(1, 1) == "/" then
+      return nil
+    end
+    target = vim.fn.tolower(target)
+    local name = vim.fn.fnamemodify(target, ":t")
+    local paths = by_name[name]
+    if not paths then
+      target, paths = target .. ".md", by_name[name .. ".md"]
+    end
+    local fallback
+    local folder = source and vim.fn.tolower(vim.fs.dirname(source) .. "/")
+    for _, candidate in ipairs(paths or {}) do
+      local lower = vim.fn.tolower(candidate)
+      if vim.endswith(lower, "/" .. target) then
+        if folder and vim.startswith(lower, folder) then
+          return candidate
+        end
+        fallback = fallback or candidate
+      end
+    end
+    return fallback
   end
 end
 
@@ -281,9 +320,11 @@ function M.get(ctx, cb)
     local resolve = M.make_resolver(rows)
     local inlinks = {}
     for path, row in pairs(rows) do
+      local seen = {}
       for _, l in ipairs(row.links_out or {}) do
-        local target = resolve(l.target, ctx.root, l.kind == "markdown" and path or nil)
-        if target then
+        local target = resolve(l.target, ctx.root, path, l.kind == "markdown")
+        if target and not seen[target] then
+          seen[target] = true
           inlinks[target] = inlinks[target] or {}
           table.insert(inlinks[target], path)
         end

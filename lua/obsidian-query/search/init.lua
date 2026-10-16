@@ -68,46 +68,120 @@ function M.context(match)
     .. (last < vim.fn.strchars(text) and "…" or "")
 end
 
----Evaluate every vault note against the AST, chunked to keep the UI live.
--- ponytail: reads all .md files per run; rg-prefilter candidates if a vault
--- ever grows past a few thousand notes
+local content_cache = {}
+
+-- Only positive content literals in conjunctions are necessary conditions.
+local function required_content(ast)
+  if ast.k == "op" and ast.name == "content" and (ast.arg.k == "word" or ast.arg.k == "phrase") then
+    local text = ast.arg.text
+    if text ~= "" and not text:find("[\128-\255\r\n]") then
+      return text
+    end
+  elseif ast.k == "and" then
+    for _, kid in ipairs(ast.kids) do
+      local text = required_content(kid)
+      if text then
+        return text
+      end
+    end
+  end
+end
+
+local function cached_note(path, root)
+  local st = vim.uv.fs_stat(path)
+  if not st then
+    content_cache[path] = nil
+    return nil
+  end
+  local stamp = table.concat({ st.mtime.sec, st.mtime.nsec, st.size }, ":")
+  local hit = content_cache[path]
+  if hit and hit.stamp == stamp then
+    return hit
+  end
+  local content = ""
+  if path:sub(-3) == ".md" then
+    local fd = io.open(path, "r")
+    if not fd then
+      return nil
+    end
+    content = fd:read("*a")
+    fd:close()
+  end
+  hit = { stamp = stamp, note = eval.note(path, vim.fs.relpath(root, path) or path, content), results = {} }
+  content_cache[path] = hit
+  return hit
+end
+
+---Reuse file contents and AST results until the file's full timestamp changes.
 function M.run(spec, ctx, cb)
   if spec.error then
     cb({ error = spec.error })
     return
   end
-  vim.system({ "rg", "--files", ctx.root }, { text = true }, function(out)
-    local paths = vim.split(out.stdout or "", "\n", { trimempty = true })
+  vim.system({ "rg", "--files", "-0", ctx.root }, {}, function(out)
+    if out.code > 1 then
+      vim.schedule(function()
+        cb({ error = vim.trim(out.stderr or "ripgrep failed") })
+      end)
+      return
+    end
+    local paths = vim.split(out.stdout or "", "\0", { plain = true, trimempty = true })
     table.sort(paths, M.less)
-    local files, total, i = {}, 0, 1
-    local function step()
-      local stop = math.min(i + BATCH - 1, #paths)
-      while i <= stop do
-        local path = paths[i]
-        i = i + 1
-        -- attachments are matchable by path/filename only, so never read them
-        local content = ""
-        if path:sub(-3) == ".md" then
-          local fd = io.open(path, "r")
-          if fd then
-            content = fd:read("*a")
-            fd:close()
+    local function evaluate(candidates)
+      local files, total, i = {}, 0, 1
+      local present = {}
+      for _, path in ipairs(paths) do
+        present[path] = true
+      end
+      for path in pairs(content_cache) do
+        if vim.startswith(path, ctx.root .. "/") and not present[path] then
+          content_cache[path] = nil
+        end
+      end
+      local function step()
+        local stop = math.min(i + BATCH - 1, #paths)
+        while i <= stop do
+          local path = paths[i]
+          i = i + 1
+          if not candidates or candidates[path] then
+            local hit = cached_note(path, ctx.root)
+            if hit then
+              local result = hit.results[spec.body]
+              if not result then
+                local ok, locs = eval.run(spec.ast, hit.note)
+                result = { ok = ok, locs = locs }
+                hit.results[spec.body] = result
+              end
+              if result.ok then
+                files[#files + 1] = { path = path, matches = result.locs }
+                total = total + #result.locs
+              end
+            end
           end
         end
-        local rel = vim.fs.relpath(ctx.root, path) or path
-        local ok, locs = eval.run(spec.ast, eval.note(path, rel, content))
-        if ok then
-          files[#files + 1] = { path = path, matches = locs }
-          total = total + #locs
+        if i <= #paths then
+          vim.schedule(step)
+        else
+          cb({ files = files, total = total, has_content = spec.has_content })
         end
       end
-      if i <= #paths then
-        vim.schedule(step)
-      else
-        cb({ files = files, total = total, has_content = spec.has_content })
-      end
+      vim.schedule(step)
     end
-    vim.schedule(step)
+    local term = required_content(spec.ast)
+    if not term then
+      evaluate()
+      return
+    end
+    vim.system({ "rg", "-l", "-0", "-i", "-F", "--glob", "*.md", "--", term, ctx.root }, {}, function(filtered)
+      local candidates
+      if filtered.code <= 1 then
+        candidates = {}
+        for _, path in ipairs(vim.split(filtered.stdout or "", "\0", { plain = true, trimempty = true })) do
+          candidates[path] = true
+        end
+      end
+      evaluate(candidates)
+    end)
   end)
 end
 

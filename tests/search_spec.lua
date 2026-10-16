@@ -225,4 +225,45 @@ check(
   "short matches show whole line"
 )
 
+group = "search cache"
+local root = vim.fn.tempname()
+vim.fn.mkdir(root, "p")
+local a, b = root .. "/a.md", root .. "/b.md"
+vim.fn.writefile({ "needle" }, a)
+vim.fn.writefile({ "other" }, b)
+local saved_open = io.open
+local reads = 0
+io.open = function(path, mode)
+  if path == a or path == b then
+    reads = reads + 1
+  end
+  return saved_open(path, mode)
+end
+local function search(text)
+  local result
+  engine.run(engine.parse(text), { root = root }, function(r)
+    result = r
+  end)
+  check(
+    vim.wait(3000, function()
+      return result ~= nil
+    end),
+    "async search completes"
+  )
+  return result
+end
+local found = search("content:needle")
+check(#found.files == 1 and reads == 1, "ripgrep prefilter skips nonmatching content files")
+found = search("content:needle")
+check(#found.files == 1 and reads == 1, "unchanged files reuse content and evaluation")
+found = search("needle OR other")
+check(#found.files == 2 and reads == 2, "OR query does not use unsafe prefilter")
+vim.fn.writefile({ "needle changed" }, b)
+found = search("content:needle")
+check(#found.files == 2 and reads == 3, "changed file refreshes cache")
+found = search("-content:needle")
+check(#found.files == 0, "negated content does not use unsafe positive prefilter")
+io.open = saved_open
+vim.fn.delete(root, "rf")
+
 io.write(("all %d checks passed\n"):format(n_ok))

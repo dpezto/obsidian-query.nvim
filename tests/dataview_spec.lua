@@ -1781,4 +1781,17 @@ do
   check(#run('LIST FROM "Journal/"').data.groups[1].items == 2, "folder source permits trailing slash")
 end
 
+do
+  group = "runtime query errors"
+  local result = run("TABLE nonexistent(file.name)")
+  check(
+    not result.ok and result.phase == "eval" and result.msg:find("Unrecognized function", 1, true),
+    "unknown function produces query error rather than null cells"
+  )
+  local shadow = vim.deepcopy(CTX)
+  shadow.index[ROOT .. "/Papers/reading.md"].properties.contains = "frontmatter value"
+  result = query.run('TABLE contains("abc", "a") FROM "Papers"', shadow)
+  check(result.ok and result.data.rows[1].cells[1] == true, "page field does not shadow built-in function calls")
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

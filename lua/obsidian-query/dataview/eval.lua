@@ -137,9 +137,16 @@ eval_node = function(ast, env)
     end
     return M.index(obj, key, env)
   elseif k == "call" then
-    local fn = eval_node(ast.fn, env)
+    local fn
+    if ast.fn.k == "ident" and env.funcs and env.funcs[ast.fn.name:lower()] then
+      fn = function(args)
+        return env.funcs[ast.fn.name:lower()](env, args)
+      end
+    else
+      fn = eval_node(ast.fn, env)
+    end
     if type(fn) ~= "function" then
-      return NULL
+      error("Unrecognized function: " .. (ast.fn.name or "value"), 0)
     end
     local args = {}
     for i, a in ipairs(ast.args) do
@@ -149,7 +156,7 @@ eval_node = function(ast, env)
     -- NOT `ok and norm(res) or NULL`: a legitimate `false` result must
     -- survive as false, not collapse to NULL
     if not ok then
-      return NULL
+      error(res, 0)
     end
     return norm(res)
   elseif k == "datelit" then
@@ -193,6 +200,9 @@ end
 function M.expr(ast, env)
   local ok, res = pcall(eval_node, ast, env)
   if not ok then
+    if env.errors then
+      env.errors[#env.errors + 1] = tostring(res)
+    end
     return NULL
   end
   return norm(res) -- `false` is a valid result, so no and/or shortcut

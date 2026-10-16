@@ -199,6 +199,7 @@ end
 function M.env(row, ctx)
   return {
     page = row,
+    errors = ctx.errors,
     this = ctx.this or NULL,
     funcs = functions.registry,
     now = ctx.now,
@@ -308,7 +309,7 @@ local function run_commands(rows, cmds, ctx)
       end
       rows = out
     elseif cmd.cmd == "limit" then
-      local n = eval.expr(cmd.expr, { funcs = functions.registry, now = ctx.now })
+      local n = eval.expr(cmd.expr, row_env(nil, ctx))
       if type(n) == "number" then
         rows = vim.list_slice(rows, 1, math.max(0, math.floor(n)))
       end
@@ -433,6 +434,7 @@ function M.run(src, ctx)
   if not ast then
     return { ok = false, phase = "parse", msg = perr.msg, pos = perr.pos }
   end
+  ctx.errors = {}
   ctx.settings = ctx.settings or require("obsidian-query.dataview.settings").get(ctx.root)
   ctx.resolve = ctx.resolve or require("obsidian-query.index").make_resolver(ctx.index)
   local ok, result = pcall(function()
@@ -487,6 +489,9 @@ function M.run(src, ctx)
     end, ast.commands)
     rows = run_commands(rows, cmds, ctx)
     local data = project(ast.header, rows, ctx)
+    if #ctx.errors > 0 then
+      error(ctx.errors[1], 0)
+    end
     data.settings = ctx.settings
     data.from = from_src -- source node, for the picker title
     return data

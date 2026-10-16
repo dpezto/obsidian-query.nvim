@@ -159,6 +159,7 @@ function M.parse(ctx)
     if ast then
       local qctx = {
         settings = settings,
+        errors = {},
         index = index.rows,
         pages = index.pages,
         root = root,
@@ -170,7 +171,7 @@ function M.parse(ctx)
         resolve = index.resolve or require("obsidian-query.index").make_resolver(index.rows),
       }
       local result = eval.expr(ast, require("obsidian-query.dataview.query").env(page, qctx))
-      local display = value.to_display(result, settings)
+      local display = #qctx.errors == 0 and value.to_display(result, settings) or ""
       if display ~= "" then
         local srow, scol, erow, ecol = span.node:range()
         marks[#marks + 1] = {

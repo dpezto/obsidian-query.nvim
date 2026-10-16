@@ -140,12 +140,13 @@ local function toggle_item(item)
     local function children(task)
       for _, child in ipairs(task.children or {}) do
         if child.task ~= false then
-          local raw = vim.api.nvim_buf_get_lines(buf, child.line - 1, child.line, false)[1]
+          local raw =
+            vim.api.nvim_buf_get_lines(buf, (child._line or child.line) - 1, child._line or child.line, false)[1]
           local text = raw and M.toggle_task_line(raw, child.text, settings, desired)
           if not text then
             return false
           end
-          edits[#edits + 1] = { line = child.line, text = text, task = child }
+          edits[#edits + 1] = { line = child._line or child.line, text = text, task = child }
         end
         if not children(child) then
           return false
@@ -223,9 +224,9 @@ function M.pick(spec, ctx, result)
       local box = task.task == false and { icon = "• ", highlight = "RenderMarkdownBullet" }
         or base.checkbox(task.status)
       items[#items + 1] = {
-        file = task.path,
+        file = task._path or task.path,
         text = note_name(task.path) .. " " .. task.text,
-        pos = { task.line, 0 },
+        pos = { task._line or task.line, 0 },
         task_text = task.text,
         task = task,
         settings = data.settings,

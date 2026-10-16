@@ -168,9 +168,11 @@ function M.build_tasks(abs_path, cache_tasks, headers, rel, ctx)
       checked = (ct.state or " ") ~= " ",
       completed = ct.state == "x" or ct.state == "X",
       fullyCompleted = ct.state == "x" or ct.state == "X", -- refined by fold below
-      line = ct.line, -- cache rows store 1-indexed lines (cache/note.lua loops from 1)
+      line = ct.line - 1,
+      _line = ct.line,
       indent = ct.indent or 0,
-      path = abs_path,
+      path = rel,
+      _path = abs_path,
       section = section and value.link(rel, { subpath = section.text, kind = "header", display = section.text })
         or value.link(rel),
       link = value.link(rel, section and { subpath = section.text, kind = "header" } or nil),
@@ -225,7 +227,7 @@ function M.build_lists(sup, tasks, abs_path, rel, ctx)
   end
   local by_line = {}
   for _, t in ipairs(tasks) do
-    by_line[t.line] = t
+    by_line[t._line or t.line] = t
   end
   local lists = {}
   for _, li in ipairs(sup.lists) do
@@ -363,7 +365,7 @@ function M.build(abs_path, row, ctx)
     lists = M.build_lists(sup, tasks, abs_path, rel, ctx),
     outlinks = value.array(outlinks),
     inlinks = value.array(inlinks),
-    frontmatter = row.properties or {},
+    frontmatter = fm,
   }, {
     __index = function(self, key)
       -- ctime needs an fs_stat; fetched lazily and cached

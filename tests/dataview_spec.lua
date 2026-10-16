@@ -239,7 +239,7 @@ check(pg.file.tasks[1].fullyCompleted == false, "parent not fullyCompleted (unch
 check(pg.file.tasks[3].fullyCompleted == true, "leaf completed")
 check(#pg.file.tasks[1].children == 1, "indent nesting")
 check(pg.file.tasks[1].section.display == "Tasks", "section from headers index")
-check(pg.file.tasks[1].line == 10, "cache line passed through 1-indexed")
+check(pg.file.tasks[1].line == 9, "task line follows Dataview zero-based indexing")
 check(value.eq(pg.file.tasks[1].tags, value.array({ "#lab" })), "task tags")
 check(value.typeof(pg.file.tasks[1].due) == "date" and pg.file.tasks[1].due.day == 15, "task [due::] field")
 check(value.typeof(pg.file.tasks[3].due) == "date" and pg.file.tasks[3].due.day == 30, "task emoji due")
@@ -1670,26 +1670,28 @@ do
     { line = 1, indent = 0, text = "parent", state = "x" },
     { line = 3, indent = 4, text = "nested task", state = " " },
   }, {}, "n.md")
-  local lists = page_mod.build_lists(
-    {
-      headers = {},
-      lists = {
-        { line = 1, indent = 0, text = "[x] parent" },
-        { line = 2, indent = 2, text = "plain" },
-        { line = 3, indent = 4, text = "[ ] nested task" },
-      },
+  local lists = page_mod.build_lists({
+    headers = {},
+    lists = {
+      { line = 1, indent = 0, text = "[x] parent" },
+      { line = 2, indent = 2, text = "plain" },
+      { line = 3, indent = 4, text = "[ ] nested task" },
     },
-    tasks,
-    "/v/n.md",
-    "n.md"
-  )
+  }, tasks, "/v/n.md", "n.md")
   check(
-    lists[2].parent == 1 and lists[2].children[1] == tasks[2],
+    lists[2].parent == 0 and lists[2].children[1] == tasks[2],
     "plain lists participate in parent and child hierarchy"
   )
   check(tasks[1].children[1] == lists[2] and not tasks[1].fullyCompleted, "completion folds through plain list parents")
   local rendered = flatten(dv_render.task_lines({ groups = { { items = tasks } } }))
   check(#rendered == 3 and rendered[2]:find("• plain", 1, true), "TASK renders plain descendants without checkboxes")
+end
+
+do
+  group = "task metadata parity"
+  check(pg.file.tasks[1].path == "Journal/2026-07-01.md", "task paths are vault relative")
+  check(pg.file.tasks[2].parent == 9 and pg.file.tasks[2].line == 10, "task parent references zero-based line")
+  check(value.typeof(pg.file.frontmatter.due) == "date", "file.frontmatter contains decoded Dataview values")
 end
 
 io.write(("all %d checks passed\n"):format(n_ok))

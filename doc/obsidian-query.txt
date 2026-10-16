@@ -300,7 +300,8 @@ Tasks ~
   text status checked completed fullyCompleted line section children
   parent, plus `[due:: ...]`-style bracket fields and the Tasks-plugin
   emoji dates 📅 (due) ✅ (completion) ➕ (created) ⏳ (scheduled)
-  🛫 (start). Nesting is indent-based.
+  🛫 (start). Nesting is indent-based. Task line and parent values are
+  zero-based; task path values are vault relative.
 
 Functions ~
 

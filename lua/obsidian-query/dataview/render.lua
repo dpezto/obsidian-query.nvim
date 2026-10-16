@@ -518,6 +518,12 @@ function M.calendar_lines(data, view)
       "NonText",
     },
   }
+  if (data.undated or 0) > 0 then
+    lines[#lines + 1] = {
+      BAR,
+      { ("%d without a date (Dataview shows no calendar)"):format(data.undated), "DiagnosticWarn" },
+    }
+  end
   return lines
 end
 

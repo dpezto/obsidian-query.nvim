@@ -320,6 +320,7 @@ check(res.ok and #res.data.months == 2 and res.data.months[1].month == 7, "expli
 
 res = run('CALENDAR FROM "Papers"')
 check(res.ok and #res.data.months == 0 and #res.data.dated == 0, "dateless rows dropped")
+check(res.data.undated > 0, "dateless rows counted")
 
 local dv_render = require("obsidian-query.dataview.render")
 local function flatten(lines)
@@ -335,18 +336,26 @@ local function flatten(lines)
 end
 -- one month at a time, opening on "today" (NOW = 2026-07-28)
 local flat = flatten(dv_render.calendar_lines(run("CALENDAR").data))
+local undated_flat = flatten(dv_render.calendar_lines(run('CALENDAR FROM "Papers"').data))
+check(undated_flat[#undated_flat]:find("without a date"), "undated rows reported under the grid")
+local journal = run('CALENDAR FROM "Journal"').data
+local journal_flat = flatten(dv_render.calendar_lines(journal))
+check(
+  journal.undated == 0 and not journal_flat[#journal_flat]:find("without a date"),
+  "all-dated calendar has no warning"
+)
 check(flat[1]:find("‹") and flat[1]:find("July 2026") and flat[1]:find("›$"), "grid header with arrows")
 -- header spans the grid ("▏ " + 7 day cells) so the arrows sit still
 check(vim.fn.strdisplaywidth(flat[1]) == 2 + 21, "header spans the grid width")
 check(flat[2]:find("Mo Tu We"), "weekday row")
 check(flat[3]:find("1•"), "day 1 marked (2026-07-01 is a Wednesday)")
-check(flat[#flat]:find("2 this month · 2 dated notes"), "month + total tail")
+check(journal_flat[#journal_flat]:find("2 this month · 2 dated notes"), "month + total tail")
 for _, l in ipairs(flat) do
   check(not l:find("August") and not l:find("June"), "only the current month rendered")
 end
 
 -- <Left>/<Right> shift the view; months without notes still render
-local next_month = flatten(dv_render.calendar_lines(run("CALENDAR").data, 1))
+local next_month = flatten(dv_render.calendar_lines(journal, 1))
 check(next_month[1]:find("August 2026"), "view +1 -> next month")
 check(next_month[#next_month]:find("0 this month"), "empty month renders with no dots")
 check(flatten(dv_render.calendar_lines(run("CALENDAR").data, -13))[1]:find("June 2025"), "view -13 wraps the year")

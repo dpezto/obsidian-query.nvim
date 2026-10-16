@@ -142,6 +142,9 @@ CALENDAR FROM "Journal"
 <img alt="Journal activity by day, with month navigation" src="assets/calendar.gif" width="850">
 
 The calendar uses dates from note names or a frontmatter `date` field.
+Dates follow Dataview's format (`2026-02-18` or `2026-02-18T16:05`). Notes
+without one are counted under the grid, because Dataview draws no calendar
+at all when any note lacks a date.
 Brighter days have more notes; today is marked so you can find your way back.
 The colors follow your colorscheme. Use Left/Right on the query to change
 months, Home to return to this month, or click a day to open its notes.

@@ -332,6 +332,11 @@ by note count across the shown month, on a continuous ramp interpolated
 from the palette anchors (a month whose days all hold the same count is
 drawn in the first colour).
 
+Dates follow Dataview's grammar: `2026-02-18` or `2026-02-18T16:05`; a
+space before the time leaves the value text. Rows without a date are
+counted in a warning line under the grid, because Dataview draws no
+calendar when any row lacks one.
+
 Only the stretch of the palette that clears a contrast floor against the
 colorscheme's `Normal` background is used : a dark background loses the
 near-black end, a light one the near-white end : and the ramp is rebuilt

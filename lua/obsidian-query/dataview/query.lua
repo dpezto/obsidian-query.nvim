@@ -377,10 +377,14 @@ local function project(header, rows, ctx)
     return { kind = "list", groups = { { items = items } } }
   elseif header.kind == "calendar" then
     -- bucket dated rows by (year, month); months + dated both newest-first
-    local months, by_ym, dated = {}, {}, {}
+    -- undated: rows whose value is not a date; Dataview's calendar fails to
+    -- render when any row has one, so the count is surfaced
+    local months, by_ym, dated, undated = {}, {}, {}, 0
     for _, row in ipairs(rows) do
       local d = header.expr and eval.expr(header.expr, row_env(row, ctx)) or (row.file and row.file.day)
-      if value.typeof(d) == "date" then
+      if value.typeof(d) ~= "date" then
+        undated = undated + 1
+      else
         local ym = d.year * 100 + d.month
         local m = by_ym[ym]
         if not m then
@@ -402,7 +406,7 @@ local function project(header, rows, ctx)
     -- the view opens on the current month, so the renderer needs "today"
     local t = ctx.now or os.date("*t")
     local today = { year = t.year, month = t.month, day = t.day }
-    return { kind = "calendar", months = months, dated = dated, today = today }
+    return { kind = "calendar", months = months, dated = dated, undated = undated, today = today }
   elseif header.kind == "task" then
     local function task_groups(members)
       local groups, items = {}, {}

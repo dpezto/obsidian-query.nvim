@@ -69,7 +69,7 @@ local open_items = base.picker
 ---@param line string
 ---@param expected_text string? reject a stale picker row
 ---@return string? toggled nil when the line holds no checkbox
-function M.toggle_task_line(line, expected_text)
+function M.toggle_task_line(line, expected_text, settings, desired)
   local pre, state, post = line:match("^(%s*[%-%*%+]%s+%[)([^%]])(%].*)$")
   if not pre then
     pre, state, post = line:match("^(%s*%d+[%.%)]%s+%[)([^%]])(%].*)$")
@@ -81,7 +81,35 @@ function M.toggle_task_line(line, expected_text)
   if expected_text and (post:match("^%]%s(.*)$") or "") ~= expected_text then
     return nil
   end
-  return pre .. (state == " " and "x" or " ") .. post
+  local done = desired
+  if done == nil then
+    done = state == " "
+  end
+  if settings and settings.taskCompletionTracking then
+    local text = post:sub(2)
+    local id = text:match("%s+(%^[%w%-]+)%s*$")
+    if id then
+      text = text:gsub("%s+%^[%w%-]+%s*$", "")
+    end
+    if settings.taskCompletionUseEmojiShorthand then
+      text = text:gsub("%s*✅%s*%d%d%d%d%-%d%d%-%d%d", "")
+      if done then
+        text = text .. " ✅ " .. os.date("%Y-%m-%d")
+      end
+    else
+      local key = vim.pesc(settings.taskCompletionText)
+      text = text:gsub("%s*%[" .. key .. "::[^%]]*%]", ""):gsub("%s*%(" .. key .. "::[^%)]*%)", "")
+      if done then
+        local date = require("obsidian-query.dataview.functions").registry.dateformat({}, {
+          value.date(os.time()),
+          settings.taskCompletionDateFormat,
+        })
+        text = text .. " [" .. settings.taskCompletionText .. ":: " .. date .. "]"
+      end
+    end
+    post = "]" .. text:gsub("%s+$", "") .. (id and (" " .. id) or "")
+  end
+  return pre .. (done and "x" or " ") .. post
 end
 
 -- <C-t> in the TASK picker: toggle the checkbox in its file (through the
@@ -98,13 +126,37 @@ local function toggle_item(item)
   vim.fn.bufload(buf)
   local lnum = item.pos[1]
   local line = vim.api.nvim_buf_get_lines(buf, lnum - 1, lnum, false)[1]
-  local toggled = line and M.toggle_task_line(line, item.task_text)
+  local settings = item.settings or require("obsidian-query.dataview.settings").defaults
+  local toggled = line and M.toggle_task_line(line, item.task_text, settings)
   if not toggled then
     vim.notify("obsidian-query: task changed or moved; reopen the query picker", vim.log.levels.WARN)
     return nil
   end
   vim.bo[buf].buflisted = true
-  vim.api.nvim_buf_set_lines(buf, lnum - 1, lnum, false, { toggled })
+  local edits = { { line = lnum, text = toggled } }
+  local desired = toggled:match("^%s*.-%[([^%]])%]") == "x"
+  if settings.recursiveSubTaskCompletion then
+    local function children(task)
+      for _, child in ipairs(task.children or {}) do
+        local raw = vim.api.nvim_buf_get_lines(buf, child.line - 1, child.line, false)[1]
+        local text = raw and M.toggle_task_line(raw, child.text, settings, desired)
+        if not text then
+          return false
+        end
+        edits[#edits + 1] = { line = child.line, text = text }
+        if not children(child) then
+          return false
+        end
+      end
+      return true
+    end
+    if not children(item.task or {}) then
+      return nil
+    end
+  end
+  for _, edit in ipairs(edits) do
+    vim.api.nvim_buf_set_lines(buf, edit.line - 1, edit.line, false, { edit.text })
+  end
   vim.api.nvim_buf_call(buf, function()
     vim.cmd("silent write")
   end)
@@ -112,6 +164,7 @@ local function toggle_item(item)
   local state = toggled:match("^%s*.-%[([^%]])%]") or " "
   local done = state == "x" or state == "X"
   local box = base.checkbox(state)
+  item.task_text = toggled:match("^%s*.-%[[^%]]%]%s(.*)$") or ""
   item.display[3] = { box.icon, box.highlight }
   item.display[4][2] = done and "Comment" or "Normal"
   return done
@@ -164,6 +217,8 @@ function M.pick(spec, ctx, result)
           text = note_name(task.path) .. " " .. task.text,
           pos = { task.line, 0 },
           task_text = task.text,
+          task = task,
+          settings = data.settings,
           display = {
             { note_name(task.path), "Directory" },
             { "  " },

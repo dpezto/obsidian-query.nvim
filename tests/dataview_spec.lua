@@ -716,6 +716,17 @@ dv_engine.pick({}, {}, {
 })
 check(toggle(picked) == true and vim.fn.readfile(task_path)[1] == "- [x] original", "picker persists completion")
 check(toggle(picked) == false and vim.fn.readfile(task_path)[1] == "- [ ] original", "picker persists reopening")
+picked.settings =
+  vim.tbl_extend("force", require("obsidian-query.dataview.settings").defaults, { recursiveSubTaskCompletion = true })
+picked.task = { children = { { line = 2, text = "other", children = {} } } }
+check(
+  toggle(picked) == true and vim.fn.readfile(task_path)[2] == "- [x] other",
+  "recursive completion changes subtasks"
+)
+check(
+  toggle(picked) == false and vim.fn.readfile(task_path)[2] == "- [ ] other",
+  "recursive reopening changes subtasks"
+)
 local task_buf = vim.fn.bufnr(task_path)
 vim.api.nvim_buf_set_lines(task_buf, 0, 0, false, { "- [ ] inserted" })
 check(toggle(picked) == nil and warning ~= nil, "stale picker warns instead of toggling another task")
@@ -888,6 +899,37 @@ check(
   ev('display([null, "**bold**", [[Folder/Note|Label]]])') == ", bold, Label",
   "display strips markdown and uses link display"
 )
+
+group = "settings"
+local settings_mod = require("obsidian-query.dataview.settings")
+local settings_root = vim.fn.tempname()
+check(settings_mod.get(settings_root).defaultDateFormat == "MMMM dd, yyyy", "missing settings use Dataview defaults")
+vim.fn.mkdir(settings_root .. "/.obsidian/plugins/dataview", "p")
+local settings_path = settings_root .. "/.obsidian/plugins/dataview/data.json"
+vim.fn.writefile({ '{"showResultCount":false,"tableIdColumnName":"Note","inlineQueryPrefix":"?"}' }, settings_path)
+local custom_settings = settings_mod.get(settings_root)
+check(not custom_settings.showResultCount and custom_settings.inlineQueryPrefix == "?", "vault settings read")
+check(
+  custom_settings.warnOnEmptyResult and custom_settings.renderNullAs == "\\-",
+  "missing settings keys retain defaults"
+)
+check(settings_mod.get(settings_root) == custom_settings, "settings cached by timestamp")
+local custom_query = query.run("TABLE file.name", { index = INDEX, root = settings_root })
+check(custom_query.data.columns[1] == "Note", "custom table ID column name")
+vim.fn.writefile({ '{"renderNullAs":"none"}' }, settings_path)
+check(settings_mod.get(settings_root).renderNullAs == "none", "settings cache refreshed after edit")
+vim.fn.writefile({ "broken json" }, settings_path)
+check(settings_mod.get(settings_root).showResultCount, "malformed settings use defaults")
+local tracking =
+  vim.tbl_extend("force", settings_mod.defaults, { taskCompletionTracking = true, taskCompletionText = "done" })
+local tracked = dv_engine.toggle_task_line("- [ ] work ^block", nil, tracking)
+check(tracked == "- [x] work [done:: " .. os.date("%Y-%m-%d") .. "] ^block", "completion field before block ID")
+check(dv_engine.toggle_task_line(tracked, nil, tracking) == "- [ ] work ^block", "reopening removes completion field")
+tracking.taskCompletionUseEmojiShorthand = true
+tracked = dv_engine.toggle_task_line("- [ ] work", nil, tracking)
+check(tracked == "- [x] work ✅ " .. os.date("%Y-%m-%d"), "emoji completion date")
+check(dv_engine.toggle_task_line(tracked, nil, tracking) == "- [ ] work", "reopening removes emoji completion")
+vim.fn.delete(settings_root, "rf")
 
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"

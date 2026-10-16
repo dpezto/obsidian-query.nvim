@@ -201,6 +201,7 @@ function M.env(row, ctx)
     this = ctx.this or NULL,
     funcs = functions.registry,
     now = ctx.now,
+    settings = ctx.settings,
     normalize_link = function(link)
       return value.normalize_link(link, ctx, ctx.this_path)
     end,
@@ -253,6 +254,7 @@ local function run_commands(rows, cmds, ctx)
         return d.row
       end, decorated)
     elseif cmd.cmd == "group" then
+      ctx.group_name = cmd.alias or cmd.src or ctx.settings.tableGroupColumnName
       local buckets, order = {}, {}
       for _, row in ipairs(rows) do
         local key = eval.expr(cmd.expr, row_env(row, ctx))
@@ -319,7 +321,7 @@ local function project(header, rows, ctx)
   if header.kind == "table" then
     local columns = {}
     if not header.without_id then
-      columns[#columns + 1] = "File"
+      columns[#columns + 1] = ctx.group_name or ctx.settings.tableIdColumnName
     end
     for _, f in ipairs(header.fields) do
       columns[#columns + 1] = f.alias or f.src
@@ -455,6 +457,7 @@ function M.run(src, ctx)
   if not ast then
     return { ok = false, phase = "parse", msg = perr.msg, pos = perr.pos }
   end
+  ctx.settings = ctx.settings or require("obsidian-query.dataview.settings").get(ctx.root)
   ctx.resolve = ctx.resolve or require("obsidian-query.index").make_resolver(ctx.index)
   local ok, result = pcall(function()
     -- FROM: first from command; absent -> whole vault
@@ -508,6 +511,7 @@ function M.run(src, ctx)
     end, ast.commands)
     rows = run_commands(rows, cmds, ctx)
     local data = project(ast.header, rows, ctx)
+    data.settings = ctx.settings
     data.from = from_src -- source node, for the picker title
     return data
   end)

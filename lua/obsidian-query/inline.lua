@@ -123,6 +123,10 @@ function M.parse(ctx)
   if not root then
     return {}
   end
+  local settings = require("obsidian-query.dataview.settings").get(root)
+  if not settings.enableInlineDataview then
+    return {}
+  end
   local path = vim.api.nvim_buf_get_name(ctx.buf)
   if not vim.startswith(path, root .. "/") then
     return {}
@@ -134,7 +138,8 @@ function M.parse(ctx)
     for _, nodes in pairs(match) do
       local node = nodes[#nodes] -- TSNode[] per capture (nvim 0.11+)
       local text = vim.treesitter.get_node_text(node, ctx.buf)
-      local expr = text:match("^`=%s+(.-)`$")
+      local prefix = "`" .. settings.inlineQueryPrefix
+      local expr = vim.startswith(text, prefix) and text:sub(-1) == "`" and vim.trim(text:sub(#prefix + 1, -2)) or nil
       if expr then
         spans[#spans + 1] = { node = node, expr = expr }
       end
@@ -164,6 +169,7 @@ function M.parse(ctx)
     end
     if ast then
       local qctx = {
+        settings = settings,
         index = index.rows,
         pages = index.pages,
         root = root,
@@ -175,7 +181,7 @@ function M.parse(ctx)
         resolve = index.resolve or require("obsidian-query.index").make_resolver(index.rows),
       }
       local result = eval.expr(ast, require("obsidian-query.dataview.query").env(page, qctx))
-      local display = value.to_display(result)
+      local display = value.to_display(result, settings)
       if display ~= "" then
         local srow, scol, erow, ecol = span.node:range()
         marks[#marks + 1] = {

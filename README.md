@@ -232,7 +232,8 @@ sources = {
 The query engines are implemented in Lua, based on
 [Dataview](https://github.com/blacksmithgu/obsidian-dataview) and
 [Obsidian Search](https://help.obsidian.md/plugins/search). They don't run
-Obsidian's plugins or read Dataview's settings.
+Obsidian's plugins. Dataview settings are read from each vault's
+`.obsidian/plugins/dataview/data.json`, with Dataview defaults for missing keys.
 
 ## Credits
 

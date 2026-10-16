@@ -247,6 +247,12 @@ rejected with a one-time warning (the pattern matches nothing).
 
 DQL inside ```dataview fences.
 
+Dataview settings are read from <vault>/.obsidian/plugins/dataview/data.json
+and cached by timestamp. Missing keys use Dataview 0.5.68 defaults. Supported
+settings cover date formats, null display, counts, empty-result warnings,
+table column names, inline query prefix and enablement, and task completion
+tracking (key, date format, emoji shorthand, recursive subtasks).
+
 Headers ~
 
   TABLE [WITHOUT ID] expr [AS "name"], ...

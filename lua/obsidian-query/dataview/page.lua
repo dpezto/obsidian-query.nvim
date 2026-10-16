@@ -47,6 +47,50 @@ function M.decode_fm(v, ctx, source)
   return v
 end
 
+function M.decode_inline(v, ctx, source)
+  if type(v) == "table" then
+    local out = {}
+    for i, item in ipairs(v) do
+      out[i] = M.decode_inline(item, ctx, source)
+    end
+    return value.array(out)
+  end
+  v = vim.trim(v)
+  if v == "" or v == "null" then
+    return NULL
+  end
+  if v == "true" then
+    return true
+  elseif v == "false" then
+    return false
+  end
+  local number = tonumber(v)
+  if number then
+    return number
+  end
+  local decoded = M.decode_fm(v, ctx, source)
+  if type(decoded) ~= "string" then
+    return decoded
+  end
+  local ast = require("obsidian-query.dataview.parser").parse_expr(v)
+  if ast and (ast.k == "lit" or ast.k == "list" or ast.k == "datelit") then
+    return require("obsidian-query.dataview.eval").expr(ast, {})
+  end
+  if v:find(",", 1, true) then
+    ast = require("obsidian-query.dataview.parser").parse_expr("[" .. v .. "]")
+    if ast then
+      local result = require("obsidian-query.dataview.eval").expr(ast, {})
+      for _, item in ipairs(result) do
+        if item == NULL then
+          return v
+        end
+      end
+      return result
+    end
+  end
+  return decoded
+end
+
 -- Tasks-plugin emoji shorthands -> field names (each followed by a date)
 local TASK_EMOJI = {
   ["🗓️"] = "due",
@@ -78,7 +122,7 @@ end
 ---@param cache_tasks table[] cache rows {line, indent, state, text}
 ---@param headers table[] {line, level, text} sorted by line
 ---@param rel string vault-relative path
-function M.build_tasks(abs_path, cache_tasks, headers, rel)
+function M.build_tasks(abs_path, cache_tasks, headers, rel, ctx)
   local tasks, stack = {}, {}
   for _, ct in ipairs(cache_tasks or {}) do
     -- nearest preceding header (headers sorted by line; both 1-indexed)
@@ -96,8 +140,8 @@ function M.build_tasks(abs_path, cache_tasks, headers, rel)
     end
     -- inline fields on the task: [due:: 2026-08-01] / (key:: v) + emoji dates
     local fields = {}
-    for k, v in (ct.text or ""):gmatch("[%[%(]([%w][%w%s_/%-]-)::%s*([^%]%)]*)[%]%)]") do
-      fields[sanitize(vim.trim(k))] = M.decode_fm(vim.trim(v))
+    for _, field in ipairs(require("obsidian-query.index").inline_fields(ct.text or "")) do
+      fields[field.key] = M.decode_inline(field.value, ctx, abs_path)
     end
     for emoji, field in pairs(TASK_EMOJI) do
       local d = (ct.text or ""):match(vim.pesc(emoji) .. "%s*(%d%d%d%d%-%d%d%-%d%d)")
@@ -109,7 +153,7 @@ function M.build_tasks(abs_path, cache_tasks, headers, rel)
       text = ct.text or "",
       task = true, -- dataview: distinguishes tasks inside file.lists
       status = ct.state or " ",
-      checked = ct.state ~= " ",
+      checked = (ct.state or " ") ~= " ",
       completed = ct.state == "x" or ct.state == "X",
       fullyCompleted = ct.state == "x" or ct.state == "X", -- refined by fold below
       line = ct.line, -- cache rows store 1-indexed lines (cache/note.lua loops from 1)
@@ -227,7 +271,7 @@ function M.build(abs_path, row, ctx)
   -- inline Key:: fields (already sanitized keys); frontmatter wins on collision
   for k, v in pairs(sup.fields or {}) do
     if page[k] == nil then
-      page[k] = M.decode_fm(v, ctx, abs_path)
+      page[k] = M.decode_inline(v, ctx, abs_path)
     end
   end
 
@@ -261,7 +305,7 @@ function M.build(abs_path, row, ctx)
     inlinks[#inlinks + 1] = value.link(vim.fs.relpath(ctx.root, p) or p)
   end
 
-  local tasks = M.build_tasks(abs_path, row.tasks, sup.headers or {}, rel)
+  local tasks = M.build_tasks(abs_path, row.tasks, sup.headers or {}, rel, ctx)
   -- obsidian.nvim v3.16+ nests file stats under row.stat; older rows were flat
   local stat = row.stat or row
   local mtime = stat.mtime_sec or stat.mtime or 0

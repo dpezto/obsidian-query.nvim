@@ -1490,4 +1490,39 @@ do
   check(quoted.pos == 6, "unterminated strings diagnose opening quote")
 end
 
+do
+  group = "typed inline fields"
+  local fields = idx_mod.inline_fields("text [project:: [[Folder/Note|Label]]] (score:: 3)")
+  check(
+    #fields == 2 and fields[1].value == "[[Folder/Note|Label]]",
+    "balanced inline fields preserve nested wiki links"
+  )
+  check(
+    page_mod.decode_inline("3") == 3 and page_mod.decode_inline("false") == false,
+    "inline numbers and booleans are typed"
+  )
+  check(page_mod.decode_inline("") == value.NULL, "empty inline field is null")
+  check(
+    value.eq(page_mod.decode_inline('"one", "two"'), value.array({ "one", "two" })),
+    "typed comma-separated inline array"
+  )
+  local ctx = vim.tbl_extend(
+    "force",
+    {},
+    CTX,
+    { sup = { [ROOT .. "/Papers/reading.md"] = { fields = { project = "[[2026-07-10]]", score = "4" }, headers = {} } } }
+  )
+  local typed = query.run('TABLE project.status, score FROM "Papers"', ctx)
+  check(
+    typed.data.rows[1].cells[1] == "done" and typed.data.rows[1].cells[2] == 4,
+    "inline project dereferences with numeric fields"
+  )
+  local task =
+    page_mod.build_tasks("/v/n.md", { { line = 1, text = "[score:: 2] [project:: [[Note]]]" } }, {}, "n.md")[1]
+  check(
+    task.score == 2 and task.project.path == "Note" and not task.checked,
+    "task fields use shared parser and absent status is open"
+  )
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

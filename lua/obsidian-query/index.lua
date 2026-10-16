@@ -66,6 +66,36 @@ function M.fence(line, open)
   return open
 end
 
+---Balanced wrappers keep wiki links intact inside bracketed fields.
+function M.inline_fields(line)
+  local fields, start = {}, 1
+  while start <= #line do
+    local first, _, key, body = line:find("[%[%(]([%w][%w%s_/%-]-)::%s*()", start)
+    if not first then
+      break
+    end
+    local opener = line:sub(first, first)
+    local closer = opener == "[" and "]" or ")"
+    local depth, i = 1, body
+    while i <= #line and depth > 0 do
+      local ch = line:sub(i, i)
+      if ch == opener then
+        depth = depth + 1
+      elseif ch == closer then
+        depth = depth - 1
+      end
+      i = i + 1
+    end
+    if depth == 0 then
+      fields[#fields + 1] = { key = vim.trim(key):lower():gsub("%s+", "-"), value = vim.trim(line:sub(body, i - 2)) }
+      start = i
+    else
+      start = first + 1
+    end
+  end
+  return fields
+end
+
 local function extract_sup(path, lines)
   local fd = not lines and io.open(path, "r") or nil
   if not lines and not fd then
@@ -111,8 +141,8 @@ local function extract_sup(path, lines)
         add_field(vim.trim(k):lower():gsub("%s+", "-"), v)
       end
       -- bracketed inline fields: [key:: v] / (key:: v)
-      for bk, bv in line:gmatch("[%[%(]([%w][%w%s_/%-]-)::%s*([^%]%)]*)[%]%)]") do
-        add_field(vim.trim(bk):lower():gsub("%s+", "-"), vim.trim(bv))
+      for _, field in ipairs(M.inline_fields(line)) do
+        add_field(field.key, field.value)
       end
       -- list items (bulleted or numbered); the cache only indexes checkboxes
       local ws, text = line:match("^(%s*)[%-%*%+]%s+(.+)$")

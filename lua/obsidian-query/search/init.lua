@@ -161,7 +161,7 @@ function M.run(spec, ctx, cb)
     local rel = vim.fs.relpath(vim.uv.fs_realpath(ctx.root) or ctx.root, vim.uv.fs_realpath(this_path) or this_path)
     this_path = rel and (ctx.root .. "/" .. rel) or nil
   end
-  vim.system({ "rg", "--files", "-0", ctx.root }, {}, function(out)
+  vim.system({ "rg", "--files", "--no-ignore", "-0", ctx.root }, {}, function(out)
     if out.code > 1 then
       vim.schedule(function()
         cb({ error = vim.trim(out.stderr or "ripgrep failed") })
@@ -221,16 +221,20 @@ function M.run(spec, ctx, cb)
       evaluate()
       return
     end
-    vim.system({ "rg", "-l", "-0", "-i", "-F", "--glob", "*.md", "--", term, ctx.root }, {}, function(filtered)
-      local candidates
-      if filtered.code <= 1 then
-        candidates = {}
-        for _, path in ipairs(vim.split(filtered.stdout or "", "\0", { plain = true, trimempty = true })) do
-          candidates[path] = true
+    vim.system(
+      { "rg", "-l", "--no-ignore", "-0", "-i", "-F", "--glob", "*.md", "--", term, ctx.root },
+      {},
+      function(filtered)
+        local candidates
+        if filtered.code <= 1 then
+          candidates = {}
+          for _, path in ipairs(vim.split(filtered.stdout or "", "\0", { plain = true, trimempty = true })) do
+            candidates[path] = true
+          end
         end
+        evaluate(candidates)
       end
-      evaluate(candidates)
-    end)
+    )
   end)
 end
 

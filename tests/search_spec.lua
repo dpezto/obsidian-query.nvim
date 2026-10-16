@@ -231,6 +231,7 @@ vim.fn.mkdir(root, "p")
 local a, b = root .. "/a.md", root .. "/b.md"
 vim.fn.writefile({ "needle" }, a)
 vim.fn.writefile({ "other" }, b)
+vim.fn.writefile({ "b.md" }, root .. "/.ignore")
 local saved_open, saved_eval = io.open, eval.run
 local reads, evaluations = 0, 0
 eval.run = function(...)
@@ -261,10 +262,10 @@ check(#found.files == 1 and reads == 1, "ripgrep prefilter skips nonmatching con
 found = search("content:needle")
 check(#found.files == 1 and reads == 1 and evaluations == 1, "unchanged files reuse content and evaluation")
 found = search("needle OR other")
-check(#found.files == 2 and reads == 2, "OR query does not use unsafe prefilter")
+check(#found.files == 2 and reads == 2, "OR query includes ignored notes without unsafe prefilter")
 vim.fn.writefile({ "needle changed" }, b)
 found = search("content:needle")
-check(#found.files == 2 and reads == 3, "changed file refreshes cache")
+check(#found.files == 2 and reads == 3, "prefilter includes changed notes listed in ignore files")
 found = search("-content:needle")
 check(#found.files == 0, "negated content does not use unsafe positive prefilter")
 io.open, eval.run = saved_open, saved_eval

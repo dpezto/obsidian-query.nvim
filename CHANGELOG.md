@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/dpezto/obsidian-query.nvim/compare/v0.1.2...v0.2.0) (2026-10-16)
+
+
+### Features
+
+* Dataview and embedded search parity, audit fixes ([#19](https://github.com/dpezto/obsidian-query.nvim/issues/19)) ([0370537](https://github.com/dpezto/obsidian-query.nvim/commit/0370537ecfedb44434c454f3c4c638f7d75fdd16))
+
 ## [0.1.2](https://github.com/dpezto/obsidian-query.nvim/compare/v0.1.1...v0.1.2) (2026-10-10)
 
 

@@ -348,6 +348,13 @@ function M.parse(ctx)
         end
         entry.bufs[ctx.buf] = true
         seen[key] = true
+        if engine == engines.dataview then
+          local tick = vim.api.nvim_buf_get_changedtick(ctx.buf)
+          if entry.tick and entry.tick ~= tick then
+            entry.stale = true
+          end
+          entry.tick = tick
+        end
         if not entry.fetching and (not entry.result or entry.stale) then
           refetch(engine, key, spec, qctx)
         end

@@ -66,14 +66,17 @@ function M.fence(line, open)
   return open
 end
 
-local function extract_sup(path)
-  local fd = io.open(path, "r")
-  if not fd then
+local function extract_sup(path, lines)
+  local fd = not lines and io.open(path, "r") or nil
+  if not lines and not fd then
     return { fields = {}, headers = {}, lists = {} }
   end
   local fields, headers, lists = {}, {}, {}
   local lnum, fence, in_fm = 0, nil, false
-  for line in fd:lines() do
+  local iterator = fd and fd:lines() or function()
+    return lines[lnum + 1]
+  end
+  for line in iterator do
     lnum = lnum + 1
     local body = false
     -- frontmatter delimiters: YAML `- item` lines must not count as lists
@@ -121,7 +124,9 @@ local function extract_sup(path)
       end
     end
   end
-  fd:close()
+  if fd then
+    fd:close()
+  end
   return { fields = fields, headers = headers, lists = lists }
 end
 M._extract_sup = extract_sup
@@ -151,6 +156,73 @@ function M.make_resolver(rows)
     end
     return by_name[vim.fn.fnamemodify(target, ":t:r"):lower()]
   end
+end
+
+---Only the containing note uses unsaved content; shared saved pages stay immutable.
+function M.this_page(idx, buf, root)
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then
+    return nil
+  end
+  local path = vim.api.nvim_buf_get_name(buf)
+  local ctx = {
+    root = root,
+    index = idx.rows,
+    pages = idx.pages,
+    sup = idx.sup,
+    inlinks = idx.inlinks,
+    starred = idx.starred,
+    resolve = idx.resolve,
+  }
+  local page = require("obsidian-query.dataview.page")
+  if not vim.bo[buf].modified then
+    return page.get(path, ctx)
+  end
+  idx.buffer_pages = idx.buffer_pages or {}
+  local tick = vim.api.nvim_buf_get_changedtick(buf)
+  local hit = idx.buffer_pages[buf]
+  if hit and hit.tick == tick and hit.path == path then
+    return hit.page
+  end
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local supplement = extract_sup(path, lines)
+  local note = require("obsidian-query.search.eval").note(path, path, table.concat(lines, "\n"))
+  local row = vim.tbl_extend("force", {}, idx.rows[path] or {})
+  row.properties = note:frontmatter()
+  row.aliases = row.properties.aliases or row.properties.alias or {}
+  if type(row.aliases) == "string" then
+    row.aliases = { row.aliases }
+  end
+  row.tags, row.tasks, row.links_out = {}, {}, {}
+  local seen = {}
+  for _, tag in ipairs(note:tags()) do
+    if not seen[tag.tag] then
+      row.tags[#row.tags + 1], seen[tag.tag] = tag.tag, true
+    end
+  end
+  for _, li in ipairs(supplement.lists) do
+    local state, text = li.text:match("^%[([^%]])%]%s*(.*)$")
+    if state then
+      row.tasks[#row.tasks + 1] = { line = li.line, indent = li.indent, state = state, text = text }
+    end
+  end
+  local ok, refs = pcall(require, "obsidian.parse.refs")
+  for i, line in ipairs(lines) do
+    if ok then
+      for _, ref in ipairs(refs.extract(line, { row = i - 1, lexical = true })) do
+        if ref.kind == "wiki" or ref.kind == "markdown" then
+          row.links_out[#row.links_out + 1] = ref
+        end
+      end
+    else
+      for target in line:gmatch("%[%[([^|%]]+)[^%]]*%]%]") do
+        row.links_out[#row.links_out + 1] = { target = target, kind = "wiki" }
+      end
+    end
+  end
+  ctx.sup = { [path] = supplement }
+  local result = page.build(path, row, ctx)
+  idx.buffer_pages[buf] = { tick = tick, path = path, page = result }
+  return result
 end
 
 ---@param ctx {root: string}

@@ -460,7 +460,7 @@ function M.run(src, ctx)
         rows[#rows + 1] = page_mod.get(path, ctx)
       end
     end
-    if ctx.this_path and ctx.index[ctx.this_path] then
+    if not ctx.this and ctx.this_path and ctx.index[ctx.this_path] then
       ctx.this = page_mod.get(ctx.this_path, ctx)
     end
     -- TASK: explode to task overlay rows BEFORE commands (dataview semantics)

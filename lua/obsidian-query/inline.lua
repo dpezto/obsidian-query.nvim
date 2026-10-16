@@ -93,19 +93,6 @@ local function ensure_index(root)
   return idx -- possibly stale (still render) or nil (pending)
 end
 
-local function get_page(path, root)
-  idx.pages = idx.pages or {}
-  return require("obsidian-query.dataview.page").get(path, {
-    index = idx.rows,
-    pages = idx.pages,
-    root = root,
-    sup = idx.sup,
-    inlinks = idx.inlinks,
-    starred = idx.starred,
-    resolve = idx.resolve,
-  })
-end
-
 local ts_query ---@type vim.treesitter.Query?
 local function get_query()
   if not ts_query then
@@ -154,7 +141,7 @@ function M.parse(ctx)
   if not index then
     return {} -- index loading; rerender() will bring the results in
   end
-  local page = get_page(path, root)
+  local page = require("obsidian-query.index").this_page(index, ctx.buf, root)
   if not page then
     return {}
   end

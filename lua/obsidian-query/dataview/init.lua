@@ -35,6 +35,7 @@ function M.run(spec, ctx, cb)
       inlinks = idx.inlinks,
       starred = idx.starred,
       this_path = this_path,
+      this = require("obsidian-query.index").this_page(idx, ctx.buf, ctx.root),
     }))
   end)
 end

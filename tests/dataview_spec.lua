@@ -977,6 +977,39 @@ check(
   "link display preserves attachment extensions and subpaths"
 )
 
+group = "unsaved this"
+local unsavedbuf = vim.api.nvim_create_buf(true, false)
+local unsavedpath = ROOT .. "/Journal/2026-07-01.md"
+vim.api.nvim_buf_set_name(unsavedbuf, unsavedpath)
+vim.api.nvim_buf_set_lines(
+  unsavedbuf,
+  0,
+  -1,
+  false,
+  { "---", "status: draft", "---", "session-goal:: unsaved", "- [ ] changed" }
+)
+local unsavedidx = { rows = INDEX, sup = SUP, inlinks = INLINKS, pages = {} }
+local unsavedpage = idx_mod.this_page(unsavedidx, unsavedbuf, ROOT)
+check(
+  unsavedpage.status == "draft" and unsavedpage["session-goal"] == "unsaved",
+  "unsaved frontmatter and inline fields"
+)
+check(unsavedpage.file.tasks[1].text == "changed", "unsaved tasks")
+check(idx_mod.this_page(unsavedidx, unsavedbuf, ROOT) == unsavedpage, "buffer page cached by changedtick")
+local unsavedresult = query.run(
+  'TABLE this.status, status FROM "Journal/2026-07-01"',
+  vim.tbl_extend("force", {}, CTX, { this = unsavedpage, this_path = unsavedpath })
+)
+check(
+  unsavedresult.data.rows[1].cells[1] == "draft" and unsavedresult.data.rows[1].cells[2] == "open",
+  "only this sees unsaved content"
+)
+vim.api.nvim_buf_set_lines(unsavedbuf, 1, 2, false, { "status: revised" })
+check(idx_mod.this_page(unsavedidx, unsavedbuf, ROOT).status == "revised", "buffer page refreshes after edit")
+vim.bo[unsavedbuf].modified = false
+check(idx_mod.this_page(unsavedidx, unsavedbuf, ROOT).status == "open", "unmodified buffers use saved page")
+vim.api.nvim_buf_delete(unsavedbuf, { force = true })
+
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"
 local base = require("obsidian-query.render")
@@ -1177,6 +1210,10 @@ do
   inline.invalidate() -- workspace switch: obsidian.nvim drops the queued callback
   parse()
   check(calls == 3, "a request stranded by a cache reset is retried")
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "---", "status: draft", "---", "x `= this.status` y" })
+  pending_cb({ rows = INDEX, sup = SUP, inlinks = INLINKS })
+  marks = parse()
+  check(#marks == 1 and marks[1].opts.virt_text[1][1] == "draft", "inline this reflects unsaved frontmatter")
   inline.invalidate()
   vim.api.nvim_buf_delete(buf, { force = true })
   core.buf_root, idx_mod.get, base.retry = saved_root, saved_get, saved_retry

@@ -22,25 +22,7 @@ local function resolve_link_path(raw, ctx, source)
   if target == "" then
     return ctx.this_path
   end
-  if source then
-    local rel = vim.fs.normalize(vim.fs.dirname(source) .. "/" .. target)
-    if ctx.index[rel] or ctx.index[rel .. ".md"] then
-      return ctx.index[rel] and rel or (rel .. ".md")
-    end
-  end
-  local direct = ctx.root .. "/" .. target
-  if ctx.index[direct] then
-    return direct
-  end
-  if ctx.index[direct .. ".md"] then
-    return direct .. ".md"
-  end
-  local want = vim.fn.fnamemodify(target, ":t:r"):lower()
-  for path in pairs(ctx.index) do
-    if vim.fn.fnamemodify(path, ":t:r"):lower() == want then
-      return path
-    end
-  end
+  return ctx.resolve(target, ctx.root, source)
 end
 
 local function source_set(src, ctx)
@@ -460,6 +442,7 @@ function M.run(src, ctx)
   if not ast then
     return { ok = false, phase = "parse", msg = perr.msg, pos = perr.pos }
   end
+  ctx.resolve = ctx.resolve or require("obsidian-query.index").make_resolver(ctx.index)
   local ok, result = pcall(function()
     -- FROM: first from command; absent -> whole vault
     local from_src

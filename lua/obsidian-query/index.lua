@@ -120,7 +120,7 @@ end
 M._extract_sup = extract_sup
 
 ---Resolve a links_out target (note name or rel path) to an absolute path.
-local function make_resolver(rows)
+function M.make_resolver(rows)
   local by_name = {}
   for path in pairs(rows) do
     by_name[vim.fn.fnamemodify(path, ":t:r"):lower()] = path
@@ -171,7 +171,7 @@ function M.get(ctx, cb)
       end
     end
     -- inlinks inversion (cache rows only, no IO)
-    local resolve = make_resolver(rows)
+    local resolve = M.make_resolver(rows)
     local inlinks = {}
     for path, row in pairs(rows) do
       for _, l in ipairs(row.links_out or {}) do
@@ -210,7 +210,14 @@ function M.get(ctx, cb)
       if i <= #stale then
         vim.schedule(step)
       else
-        cb({ rows = rows, sup = sup, inlinks = inlinks, root = ctx.root, starred = read_starred(ctx.root) })
+        cb({
+          rows = rows,
+          sup = sup,
+          inlinks = inlinks,
+          root = ctx.root,
+          resolve = resolve,
+          starred = read_starred(ctx.root),
+        })
       end
     end
     step()

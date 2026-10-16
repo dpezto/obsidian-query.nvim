@@ -783,6 +783,13 @@ check(
     and out_res.data.groups[1].items[1].path == rel_root .. "/sub/peer.md",
   "outgoing() resolves relative markdown targets"
 )
+local resolve = idx_mod.make_resolver(rows)
+check(resolve("missing", rel_root) == nil, "missing link name stays unresolved")
+check(resolve("sub/peer", rel_root) == rel_root .. "/sub/peer.md", "resolver accepts vault relative paths")
+check(
+  resolve("peer.md", rel_root, rel_root .. "/sub/source.md") == rel_root .. "/sub/peer.md",
+  "resolver accepts source relative paths"
+)
 package.loaded["obsidian.cache"], _G.Obsidian = saved_cache, saved_obsidian
 vim.fn.delete(index_path)
 

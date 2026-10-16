@@ -380,4 +380,10 @@ do
   vim.fn.delete(root, "rf")
 end
 
+do
+  group = "incomplete negation"
+  local parsed, err = parser.parse("-")
+  check(parsed == nil and err == "expected a term after negation", "trailing negation reports a syntax error")
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

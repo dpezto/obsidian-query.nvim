@@ -1764,4 +1764,15 @@ do
   check(ev("date([[2026-07-01]])").day == 1, "date accepts date-named links")
 end
 
+do
+  group = "external links"
+  check(
+    ev('typeof(elink("https://example.com", "Label"))') == "widget",
+    "external link is a widget rather than a vault link"
+  )
+  check(value.to_display(ev('elink("https://example.com", "Label")')) == "Label", "external link renders display label")
+  check(ev('meta(elink("https://example.com"))') == value.NULL, "external links do not expose vault link metadata")
+  check(ev('elink("https://example.com").path') == value.NULL, "external links cannot dereference vault pages")
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

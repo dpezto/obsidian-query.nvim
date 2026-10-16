@@ -12,6 +12,7 @@ M.NULL = setmetatable({}, {
 ---------------------------------------------------------------- constructors
 
 local date_mt, dur_mt, link_mt, array_mt, task_mt
+local widget_mt = { dv = "widget" }
 
 -- lazy date components via os.date; ts canonical (fast ordering)
 date_mt = {
@@ -138,6 +139,10 @@ function M.normalize_link(link, ctx, source, relative)
   return M.link(vim.fs.relpath(ctx.root, path) or path, link)
 end
 
+function M.external_link(url, display)
+  return setmetatable({ url = url, display = display or url }, widget_mt)
+end
+
 function M.array(list)
   return setmetatable(list or {}, array_mt)
 end
@@ -167,6 +172,8 @@ function M.typeof(v)
       return "link"
     elseif dv == "array" then
       return "array"
+    elseif dv == "widget" then
+      return "widget"
     elseif dv == "task" then
       return "object"
     end
@@ -322,6 +329,7 @@ local TYPE_RANK = {
   number = 7,
   object = 8,
   string = 9,
+  widget = 10,
 }
 
 function M.eq(a, b)
@@ -560,6 +568,8 @@ function M.to_display(v, settings, depth)
       end
     end
     return #parts > 0 and table.concat(parts, ", ") or "0 seconds"
+  elseif t == "widget" then
+    return v.display or v.url
   elseif t == "link" then
     local name = vim.fn.fnamemodify(v.path, ":t"):gsub("%.md$", "")
     return v.display or (name .. (v.subpath and (" > " .. v.subpath) or ""))

@@ -19,6 +19,9 @@ function M.index(obj, key, env)
   if t == "null" then
     return NULL
   end
+  if t == "widget" then
+    return NULL
+  end
   if t == "link" then
     local page = env and env.resolve_page and env.resolve_page(obj.path)
     return type(key) == "string" and norm(page and page[key]) or NULL

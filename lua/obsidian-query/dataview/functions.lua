@@ -973,18 +973,18 @@ R.meta = function(_, args)
   end
   return NULL
 end
-R.elink = function(_, args)
+R.elink = vectorize(function(_, args)
   if T(args[1]) ~= "string" then
     return NULL
   end
-  return value.link(args[1], { display = T(args[2]) == "string" and args[2] or args[1] })
-end
+  return value.external_link(args[1], T(args[2]) == "string" and args[2] or args[1])
+end)
 R.embed = vectorize(function(_, args)
   if T(args[1]) ~= "link" then
     return NULL
   end
   return value.link(args[1].path, vim.tbl_extend("force", {}, args[1], { embed = args[2] == nil or args[2] == true }))
-end)
+end, { 1, 2 })
 R.containsword = str_fn(function(s, w)
   if T(w) ~= "string" then
     return NULL

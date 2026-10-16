@@ -1714,4 +1714,25 @@ do
   _G.Obsidian, package.loaded["obsidian.api"] = saved_ob, saved_api
 end
 
+do
+  group = "string function parity"
+  check(
+    value.eq(ev('split("abc", "")'), value.array({ "a", "b", "c" })),
+    "empty regex split omits boundary empty strings"
+  )
+  check(value.eq(ev('split("", "")'), value.array({})), "empty regex splits empty text to no elements")
+  check(
+    ev('padleft("x", 4, "ab")') == "abax" and ev('padright("x", 4, "ab")') == "xaba",
+    "padding truncates repeated pad string"
+  )
+  check(ev('padleft("x", 4, "")') == "x", "empty padding is a no-op")
+  check(
+    ev('substring("abcd", 3, 1)') == "bc" and ev('substring("abcd", -2, 2)') == "ab",
+    "substring swaps and clamps bounds"
+  )
+  check(ev('truncate("abcdef", 5)') == "ab...", "truncate uses Dataview default suffix")
+  check(value.eq(ev('split("a,b;c", "[,;]")'), value.array({ "a", "b", "c" })), "split uses regex delimiters")
+  check(value.eq(ev('split("a,b,c", ",", 2)'), value.array({ "a", "b" })), "split honors result limit")
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

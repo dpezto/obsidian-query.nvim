@@ -286,22 +286,42 @@ end)
 R.endswith = str_fn(function(s, suf)
   return T(suf) == "string" and vim.endswith(s, suf)
 end)
+local function padding(s, n, ch)
+  if T(n) ~= "number" then
+    return NULL
+  end
+  ch = T(ch) == "string" and ch or " "
+  local need = math.max(0, math.floor(n) - vim.fn.strchars(s))
+  if ch == "" or need == 0 then
+    return ""
+  end
+  return vim.fn.strcharpart(string.rep(ch, math.ceil(need / vim.fn.strchars(ch))), 0, need)
+end
 R.padleft = str_fn(function(s, n, ch)
-  return string.rep(T(ch) == "string" and ch or " ", math.max(0, (n or 0) - #s)) .. s
+  local pad = padding(s, n, ch)
+  return pad == NULL and NULL or pad .. s
 end)
 R.padright = str_fn(function(s, n, ch)
-  return s .. string.rep(T(ch) == "string" and ch or " ", math.max(0, (n or 0) - #s))
+  local pad = padding(s, n, ch)
+  return pad == NULL and NULL or s .. pad
 end)
 R.substring = str_fn(function(s, from, to)
-  return s:sub((from or 0) + 1, to or #s) -- dataview substrings are 0-based
+  local size = vim.fn.strchars(s)
+  from, to = math.max(0, math.min(size, from or 0)), math.max(0, math.min(size, to or size))
+  if from > to then
+    from, to = to, from
+  end
+  return vim.fn.strcharpart(s, from, to - from)
 end)
 R.truncate = str_fn(function(s, n, suffix)
-  suffix = T(suffix) == "string" and suffix or "…"
-  if vim.fn.strchars(s) <= (n or 0) then
+  suffix = T(suffix) == "string" and suffix or "..."
+  local keep = math.max(0, (n or 0) - vim.fn.strchars(suffix))
+  if vim.fn.strchars(s) <= keep then
     return s
   end
-  return vim.fn.strcharpart(s, 0, math.max(0, (n or 0) - vim.fn.strchars(suffix))) .. suffix
+  return vim.fn.strcharpart(s, 0, keep) .. suffix
 end)
+
 R.replace = str_fn(function(s, pat, rep)
   if T(pat) ~= "string" or T(rep) ~= "string" then
     return NULL
@@ -313,7 +333,37 @@ R.split = function(_, args)
   if T(args[1]) ~= "string" or T(args[2]) ~= "string" then
     return NULL
   end
-  return value.array(vim.split(args[1], args[2], { plain = true }))
+  local regex = require("obsidian-query.regex")
+  if not regex.compile(args[2]) then
+    return NULL
+  end
+  local pattern = "\\v\\C" .. regex.to_vim(args[2])
+  local text, out, start, scan, last_zero = args[1], {}, 0, 0, false
+  local limit = T(args[3]) == "number" and math.max(0, math.floor(args[3])) or math.huge
+  while #out < limit do
+    local found = vim.fn.matchstrpos(text, pattern, scan)
+    local first, ending = found[2], found[3]
+    if first < 0 then
+      break
+    end
+    last_zero = ending == first
+    if ending > start then
+      out[#out + 1] = text:sub(start + 1, first)
+      start = ending
+    end
+    if ending == first then
+      if ending >= #text then
+        break
+      end
+      scan = ending + #vim.fn.strcharpart(text:sub(ending + 1), 0, 1)
+    else
+      scan = ending
+    end
+  end
+  if #out < limit and (start < #text or not last_zero) then
+    out[#out + 1] = text:sub(start + 1)
+  end
+  return value.array(out)
 end
 
 -- shared PCRE-ish -> vim very-magic translator (lookarounds, alternation)

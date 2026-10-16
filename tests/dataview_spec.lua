@@ -1694,4 +1694,24 @@ do
   check(value.typeof(pg.file.frontmatter.due) == "date", "file.frontmatter contains decoded Dataview values")
 end
 
+do
+  group = "workspace boundary"
+  local saved_ob, saved_api = _G.Obsidian, package.loaded["obsidian.api"]
+  _G.Obsidian = { workspace = { root = ROOT } }
+  package.loaded["obsidian.api"] = {
+    find_workspace = function()
+      return nil
+    end,
+  }
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_name(buf, "/outside/note.md")
+  check(require("obsidian-query").buf_root(buf) == nil, "unrecognized file does not inherit active vault")
+  package.loaded["obsidian.api"].find_workspace = function()
+    error("API unavailable")
+  end
+  check(require("obsidian-query").buf_root(buf) == nil, "fallback workspace still enforces vault boundary")
+  vim.api.nvim_buf_delete(buf, { force = true })
+  _G.Obsidian, package.loaded["obsidian.api"] = saved_ob, saved_api
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

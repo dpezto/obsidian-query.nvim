@@ -12,7 +12,7 @@ local stale_gen = 0 -- bumped per invalidation: a request begun before one stays
 local request ---@type table? token of the in-flight index request
 local bufs = {} ---@type table<integer, true> buffers showing inline values
 local stale_au ---@type integer?
-local expr_cache = {} ---@type table<string, table|false> parsed ASTs
+local expr_cache = setmetatable({}, { __mode = "v" }) ---@type table<string, table> parsed ASTs
 
 local function mark_stale_on_change()
   if stale_au then
@@ -152,7 +152,9 @@ function M.parse(ctx)
     local ast = expr_cache[span.expr]
     if ast == nil then
       ast = require("obsidian-query.dataview.parser").parse_expr(span.expr) or false
-      expr_cache[span.expr] = ast
+      if ast then
+        expr_cache[span.expr] = ast
+      end
     end
     if ast then
       local qctx = {

@@ -231,8 +231,12 @@ vim.fn.mkdir(root, "p")
 local a, b = root .. "/a.md", root .. "/b.md"
 vim.fn.writefile({ "needle" }, a)
 vim.fn.writefile({ "other" }, b)
-local saved_open = io.open
-local reads = 0
+local saved_open, saved_eval = io.open, eval.run
+local reads, evaluations = 0, 0
+eval.run = function(...)
+  evaluations = evaluations + 1
+  return saved_eval(...)
+end
 io.open = function(path, mode)
   if path == a or path == b then
     reads = reads + 1
@@ -255,7 +259,7 @@ end
 local found = search("content:needle")
 check(#found.files == 1 and reads == 1, "ripgrep prefilter skips nonmatching content files")
 found = search("content:needle")
-check(#found.files == 1 and reads == 1, "unchanged files reuse content and evaluation")
+check(#found.files == 1 and reads == 1 and evaluations == 1, "unchanged files reuse content and evaluation")
 found = search("needle OR other")
 check(#found.files == 2 and reads == 2, "OR query does not use unsafe prefilter")
 vim.fn.writefile({ "needle changed" }, b)
@@ -263,7 +267,7 @@ found = search("content:needle")
 check(#found.files == 2 and reads == 3, "changed file refreshes cache")
 found = search("-content:needle")
 check(#found.files == 0, "negated content does not use unsafe positive prefilter")
-io.open = saved_open
+io.open, eval.run = saved_open, saved_eval
 vim.fn.delete(root, "rf")
 
 group = "embedded origin exclusion"
@@ -315,5 +319,15 @@ local tag_lines = engine.lines({
   has_content = false,
 })
 check(#tag_lines == 3, "structural tag matches show context")
+
+group = "AST lifetime"
+do
+  local first = engine.parse("unique-lifetime-term")
+  check(engine.parse("unique-lifetime-term").ast == first.ast, "active query parses reuse AST identity")
+  local weak = setmetatable({ first.ast }, { __mode = "v" })
+  first = nil
+  collectgarbage("collect")
+  check(weak[1] == nil, "unused query ASTs are collectable")
+end
 
 io.write(("all %d checks passed\n"):format(n_ok))

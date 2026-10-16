@@ -12,16 +12,21 @@ local M = {}
 local BATCH = 25 -- files evaluated per event-loop tick
 local MAX_MATCH_LINES = 3 -- matched lines shown per note inline
 local max_notes = require("obsidian-query.config").max_rows
+local parsed = setmetatable({}, { __mode = "v" })
 
 function M.parse(body)
   body = vim.trim(body)
   if body == "" then
     return nil
   end
-  local ast, err = parser.parse(body)
+  local ast, err = parsed[body], nil
+  if not ast then
+    ast, err = parser.parse(body)
+  end
   if not ast then
     return { body = body, error = err }
   end
+  parsed[body] = ast
   return { body = body, ast = ast, has_content = parser.has_content(ast) }
 end
 
@@ -124,7 +129,7 @@ local function cached_note(path, root)
     stamp = stamp,
     content = content,
     note = eval.note(path, vim.fs.relpath(root, path) or path, content),
-    results = {},
+    results = setmetatable({}, { __mode = "k" }),
   }
   content_cache[path] = hit
   return hit
@@ -185,12 +190,14 @@ function M.run(spec, ctx, cb)
             local hit = cached_note(path, ctx.root)
             if hit then
               local own = path == this_path
-              local key = spec.body .. (own and "\0origin" or "")
-              local result = hit.results[key]
+              local key = own and "origin" or "saved"
+              local results = hit.results[spec.ast] or {}
+              hit.results[spec.ast] = results
+              local result = results[key]
               if not result then
                 local ok, locs = eval.run(spec.ast, own and origin_note(hit) or hit.note)
                 result = { ok = ok, locs = locs }
-                hit.results[key] = result
+                results[key] = result
               end
               if result.ok then
                 files[#files + 1] = { path = path, matches = result.locs }

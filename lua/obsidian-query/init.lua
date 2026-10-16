@@ -361,6 +361,7 @@ function M.parse(ctx)
           entry = { bufs = {} }
           cache[key] = entry
         end
+        entry.spec = spec
         entry.bufs[ctx.buf] = true
         seen[key] = true
         if engine == engines.dataview then

@@ -40,9 +40,10 @@ local function source_set(src, ctx)
     return out
   elseif k == "s_folder" then
     local out = {}
-    local prefix = ctx.root .. "/" .. src.folder
+    local folder = src.folder:gsub("^/", ""):gsub("/+$", "")
+    local prefix = ctx.root .. "/" .. folder
     for path in pairs(ctx.index) do
-      if path == prefix or path == prefix .. ".md" or vim.startswith(path, prefix .. "/") then
+      if folder == "" or path == prefix or path == prefix .. ".md" or vim.startswith(path, prefix .. "/") then
         out[path] = true
       end
     end

@@ -1775,4 +1775,10 @@ do
   check(ev('elink("https://example.com").path') == value.NULL, "external links cannot dereference vault pages")
 end
 
+do
+  group = "folder normalization"
+  check(#run('LIST FROM ""').data.groups[1].items == 3, "empty folder source includes whole vault")
+  check(#run('LIST FROM "Journal/"').data.groups[1].items == 2, "folder source permits trailing slash")
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

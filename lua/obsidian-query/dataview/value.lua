@@ -264,21 +264,21 @@ end
 ---------------------------------------------------------------- comparison
 
 local function norm_link_path(l)
-  return (l.path:lower():gsub("%.md$", "")) .. "\0" .. (l.subpath or "")
+  return l.path .. "\0" .. l.kind .. "\0" .. (l.subpath or "")
 end
 M.link_key = norm_link_path -- eq identity of a link (unique() hashes on it)
 
 local TYPE_RANK = {
   null = 0,
-  boolean = 1,
-  number = 2,
-  string = 3,
-  date = 4,
-  duration = 5,
+  array = 1,
+  boolean = 2,
+  date = 3,
+  duration = 4,
+  ["function"] = 5,
   link = 6,
-  array = 7,
+  number = 7,
   object = 8,
-  ["function"] = 9,
+  string = 9,
 }
 
 function M.eq(a, b)
@@ -371,16 +371,13 @@ function M.cmp(a, b)
   return 0
 end
 
----WHERE comparison; `<' family with NULL -> NULL (row filtered as falsy)
+---WHERE comparisons use the same total order as SORT.
 ---@return boolean|table
 function M.compare_op(op, a, b)
   if op == "=" then
     return M.eq(a, b)
   elseif op == "!=" then
     return not M.eq(a, b)
-  end
-  if M.typeof(a) == "null" or M.typeof(b) == "null" then
-    return M.NULL
   end
   local c = M.cmp(a, b)
   if op == "<" then

@@ -222,7 +222,6 @@ sources = {
 ## Differences from Obsidian
 
 - `dataviewjs` and `$=` JavaScript expressions aren't supported.
-- Arrays use 1-based indexing.
 - Dates use local time without timezone or millisecond support.
 - Plain items in `file.lists` have no parent/child nesting; tasks do.
 - Regex is translated to Vim regex. In-pattern backreferences, named groups,

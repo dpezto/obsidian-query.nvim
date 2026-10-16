@@ -163,7 +163,7 @@ check(value.typeof(value.arith("/", 1, 0)) == "null", "div by zero -> null")
 check(value.truthy("") == false and value.truthy(value.array({})) == false, "empty falsy")
 check(value.compare_op("=", value.NULL, value.NULL) == true, "null = null")
 check(value.compare_op("=", value.NULL, 1) == false, "null = x false")
-check(value.typeof(value.compare_op("<", value.NULL, 1)) == "null", "null < x -> null")
+check(value.compare_op("<", value.NULL, 1) == true, "null sorts before non-null values")
 check(value.cmp(1, "a") == -1, "type rank number < string")
 check(value.cmp(value.array({ 1, 2 }), value.array({ 1, 3 })) == -1, "array elementwise")
 
@@ -827,7 +827,7 @@ local tomorrow = ev("date(tomorrow)")
 check(tomorrow.hour == 0 and tomorrow.day == 29, "date(tomorrow) is next local midnight")
 check(ev("date(eom)").day == 31 and ev("date(eom)").hour == 0, "date(eom) is the month's last midnight")
 check(
-  ev('length(unique([1, 1, "1", date(2026-07-01), date(2026-07-01), [[a]], [[A]], [1], [1]]))') == 5,
+  ev('length(unique([1, 1, "1", date(2026-07-01), date(2026-07-01), [[a]], [[A]], [1], [1]]))') == 6,
   "unique() dedupes scalars, dates, links and arrays"
 )
 check(F.regexreplace(env, { '"foo"', "\\b(foo)", "$1" }) == '"foo"', "\\b adds no capture group")
@@ -1145,6 +1145,17 @@ check(ev('regexmatch("[a-z]+", "alpha")') == true, "regexmatch takes pattern fir
 check(ev('regexmatch("[a-z]+", "alpha1")') == false, "regexmatch anchors unanchored patterns")
 check(ev('regextest("[a-z]+", "alpha1")') == true, "regextest permits partial match")
 check(ev('regexmatch(null, "text")') == false, "regex null input is false")
+
+group = "value parity"
+check(ev("[10, 20][0]") == 10 and ev("[10, 20][1]") == 20, "DQL array indexing is zero-based")
+check(ev("[10][-1]") == value.NULL and ev("[10][1]") == value.NULL, "array indexing rejects out-of-bounds values")
+check(ev('"abc"[1]') == "b", "DQL string indexing")
+check(
+  value.cmp(value.array({}), false) < 0 and value.cmp(value.date(0), 1) < 0,
+  "cross-type order uses Dataview type names"
+)
+check(not value.eq(value.link("missing"), value.link("MISSING")), "unresolved links are case-sensitive")
+check(not value.eq(value.link("a#H"), value.link("a#^H")), "header and block links have different identities")
 
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"

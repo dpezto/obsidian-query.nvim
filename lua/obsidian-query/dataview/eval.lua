@@ -31,7 +31,13 @@ function M.index(obj, key, env)
     return value.array(out)
   end
   if t == "array" and type(key) == "number" then
-    return norm(obj[key]) -- 1-based (Lua-consistent; documented deviation)
+    return key >= 0 and key % 1 == 0 and norm(obj[key + 1]) or NULL
+  end
+  if t == "string" and type(key) == "number" then
+    if key < 0 or key % 1 ~= 0 or key >= vim.fn.strchars(obj) then
+      return NULL
+    end
+    return vim.fn.strcharpart(obj, key, 1)
   end
   if type(obj) == "table" then
     return norm(obj[key])

@@ -1604,4 +1604,16 @@ do
   vim.fn.delete(root, "rf")
 end
 
+do
+  group = "unsaved link exclusions"
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(buf, "/v/unsaved.md")
+  local lines = { "[[Visible]]", "```dataview", "LIST [[Hidden]]", "```" }
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  local page = idx_mod.this_page({ rows = {}, sup = {}, inlinks = {} }, buf, "/v")
+  check(#page.file.outlinks == 1 and page.file.outlinks[1].path == "Visible", "unsaved outlinks exclude fenced code")
+  check(page.file.size == #table.concat(lines, "\n") + 1, "unsaved page size follows buffer content")
+  vim.api.nvim_buf_delete(buf, { force = true })
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

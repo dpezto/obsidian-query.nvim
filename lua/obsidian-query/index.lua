@@ -101,7 +101,7 @@ local function extract_sup(path, lines)
   if not lines and not fd then
     return { fields = {}, headers = {}, lists = {} }
   end
-  local fields, headers, lists = {}, {}, {}
+  local fields, headers, lists, body_lines = {}, {}, {}, {}
   local lnum, fence, in_fm = 0, nil, false
   local iterator = fd and fd:lines() or function()
     return lines[lnum + 1]
@@ -120,6 +120,7 @@ local function extract_sup(path, lines)
       body = not was_fence and not fence
     end
     if body then
+      body_lines[lnum] = true
       local hashes, text = line:match("^(#+)%s+(.*)$")
       if hashes then
         headers[#headers + 1] = { line = lnum, level = #hashes, text = text }
@@ -157,7 +158,7 @@ local function extract_sup(path, lines)
   if fd then
     fd:close()
   end
-  return { fields = fields, headers = headers, lists = lists }
+  return { fields = fields, headers = headers, lists = lists, body_lines = body_lines }
 end
 M._extract_sup = extract_sup
 
@@ -257,6 +258,12 @@ function M.this_page(idx, buf, root)
   local note = require("obsidian-query.search.eval").note(path, path, table.concat(lines, "\n"))
   local row = vim.tbl_extend("force", {}, idx.rows[path] or {})
   row.properties = note:frontmatter()
+  row.stat = vim.tbl_extend(
+    "force",
+    {},
+    row.stat or row,
+    { size = #table.concat(lines, "\n") + (vim.bo[buf].endofline and 1 or 0) }
+  )
   row.aliases = row.properties.aliases or row.properties.alias or {}
   if type(row.aliases) == "string" then
     row.aliases = { row.aliases }
@@ -276,13 +283,13 @@ function M.this_page(idx, buf, root)
   end
   local ok, refs = pcall(require, "obsidian.parse.refs")
   for i, line in ipairs(lines) do
-    if ok then
+    if supplement.body_lines[i] and ok then
       for _, ref in ipairs(refs.extract(line, { row = i - 1, lexical = true })) do
         if ref.kind == "wiki" or ref.kind == "markdown" then
           row.links_out[#row.links_out + 1] = ref
         end
       end
-    else
+    elseif supplement.body_lines[i] then
       for target in line:gmatch("%[%[([^|%]]+)[^%]]*%]%]") do
         row.links_out[#row.links_out + 1] = { target = target, kind = "wiki" }
       end

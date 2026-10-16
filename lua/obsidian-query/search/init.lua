@@ -68,6 +68,19 @@ function M.context(match)
     .. (last < vim.fn.strchars(text) and "…" or "")
 end
 
+function M.contexts(match)
+  local spans = {}
+  for _, range in ipairs(match.ranges or { { match.col or 1, match.end_col or match.col or 1 } }) do
+    local last = spans[#spans]
+    if last and vim.fn.strchars(match.text:sub(last.end_col, range[1] - 1)) <= 200 then
+      last.end_col = math.max(last.end_col, range[2])
+    else
+      spans[#spans + 1] = { text = match.text, col = range[1], end_col = range[2] }
+    end
+  end
+  return vim.tbl_map(M.context, spans)
+end
+
 local content_cache = {}
 
 -- Only positive content literals in conjunctions are necessary conditions.
@@ -181,7 +194,9 @@ function M.run(spec, ctx, cb)
               end
               if result.ok then
                 files[#files + 1] = { path = path, matches = result.locs }
-                total = total + #result.locs
+                for _, loc in ipairs(result.locs) do
+                  total = total + #(loc.ranges or { loc })
+                end
               end
             end
           end
@@ -218,25 +233,22 @@ function M.lines(result)
   end
   -- structural queries (tag/path/prop only) render one line per note;
   -- content-bearing queries also show their matched lines
-  local lines, show_matches = {}, result.has_content
+  local lines = {}
   for fi = 1, math.min(#result.files, max_notes()) do
     local f = result.files[fi]
     lines[#lines + 1] = {
       { "▏ ", "RenderMarkdownBullet" },
       { eval.label(f.path), "RenderMarkdownLink" },
     }
-    if show_matches then
-      for j = 1, math.min(#f.matches, MAX_MATCH_LINES) do
-        lines[#lines + 1] = {
-          { "▏   · ", "RenderMarkdownBullet" },
-          { M.context(f.matches[j]), "Comment" },
-        }
-      end
-      if #f.matches > MAX_MATCH_LINES then
-        lines[#lines + 1] = {
-          { "▏     +" .. (#f.matches - MAX_MATCH_LINES) .. " more", "NonText" },
-        }
-      end
+    local snippets = {}
+    for _, match in ipairs(f.matches) do
+      vim.list_extend(snippets, M.contexts(match))
+    end
+    for j = 1, math.min(#snippets, MAX_MATCH_LINES) do
+      lines[#lines + 1] = { { "▏   · ", "RenderMarkdownBullet" }, { snippets[j], "Comment" } }
+    end
+    if #snippets > MAX_MATCH_LINES then
+      lines[#lines + 1] = { { "▏     +" .. (#snippets - MAX_MATCH_LINES) .. " more", "NonText" } }
     end
   end
   if #result.files > max_notes() then
@@ -252,7 +264,7 @@ function M.lines(result)
     }
   end
   local tail = ("%d notes"):format(#result.files)
-  if result.total and result.total > 0 and show_matches then
+  if result.total and result.total > 0 then
     tail = tail .. (", %d matches"):format(result.total)
   end
   lines[#lines + 1] = { { "▏ ", "RenderMarkdownBullet" }, { tail, "Comment" } }

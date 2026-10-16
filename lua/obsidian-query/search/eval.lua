@@ -191,7 +191,7 @@ function Note:tasks()
       for _, pat in ipairs(TASK_PATTERNS) do
         local state, text = l:match(pat)
         if state then
-          tasks[#tasks + 1] = { lnum = i, state = state, text = text }
+          tasks[#tasks + 1] = { lnum = i, state = state, text = text, offset = #l - #text }
           break
         end
       end
@@ -203,14 +203,14 @@ end
 
 ---------------------------------------------------------------- text matching
 
-local function find_plain(text, term, case)
+local function find_plain(text, term, case, start)
   local sensitive = case == "sensitive" or (case == "smart" and term:match("%u") ~= nil)
   local hay = sensitive and text or text:lower()
   local needle = sensitive and term or term:lower()
   if needle == "" then
     return 1
   end
-  return hay:find(needle, 1, true)
+  return hay:find(needle, start or 1, true)
 end
 
 -- shared PCRE-ish -> vim very-magic translator (lookarounds, alternation)
@@ -222,20 +222,36 @@ end
 -- leaf match over an array of {lnum, text}; returns ok, locs
 local function leaf_on_texts(leaf, texts, case)
   local locs = {}
-  for _, t in ipairs(texts) do
-    local col, ending
-    if leaf.k == "regex" then
-      local re = get_regex(leaf.pat, leaf.flags, case)
-      if re then
-        col, ending = re:match_str(t.text)
-      end
-      col, ending = col and col + 1, ending and ending + 1
-    else
-      col, ending = find_plain(t.text, leaf.text, case)
-      ending = ending and ending + 1
+  local regex = require("obsidian-query.regex")
+  local pattern
+  if leaf.k == "regex" then
+    if not get_regex(leaf.pat, leaf.flags, case) then
+      return false, {}
     end
-    if col then
-      locs[#locs + 1] = { lnum = t.lnum, col = col, end_col = ending, text = t.text }
+    pattern = "\\v" .. ((leaf.flags:find("i") or case == "insensitive") and "\\c" or "\\C") .. regex.to_vim(leaf.pat)
+  end
+  for _, t in ipairs(texts) do
+    local start = 1
+    while start <= #t.text + 1 do
+      local col, ending
+      if pattern then
+        local match = vim.fn.matchstrpos(t.text, pattern, start - 1)
+        if match[2] >= 0 then
+          col, ending = match[2] + 1, match[3] + 1
+        end
+      else
+        col, ending = find_plain(t.text, leaf.text, case, start)
+        ending = ending and ending + 1 or col
+      end
+      if not col then
+        break
+      end
+      locs[#locs + 1] =
+        { lnum = t.lnum, col = col + (t.offset or 0), end_col = ending + (t.offset or 0), text = t.display or t.text }
+      if ending <= col then
+        break
+      end
+      start = ending
     end
   end
   return #locs > 0, locs
@@ -356,7 +372,10 @@ end
 
 local function prop_match(note, name, value)
   local fm = note:frontmatter()
-  local v = fm[name] or fm[name:lower()]
+  local v = fm[name]
+  if v == nil then
+    v = fm[name:lower()]
+  end
   if v == nil then
     return false, {}
   end
@@ -379,7 +398,7 @@ local function task_texts(note, which)
       or (which == "task-todo" and t.state == " ")
       or (which == "task-done" and t.state ~= " ")
     if keep then
-      texts[#texts + 1] = { lnum = t.lnum, text = t.text }
+      texts[#texts + 1] = { lnum = t.lnum, text = t.text, offset = t.offset, display = note.lines[t.lnum] }
     end
   end
   return texts
@@ -452,9 +471,16 @@ function M.run(ast, note)
   end)
   local seen, out = {}, {}
   for _, l in ipairs(locs) do
-    if not seen[l.lnum] then
-      seen[l.lnum] = true
-      out[#out + 1] = l
+    local line = seen[l.lnum]
+    if not line then
+      line = l
+      line.ranges = {}
+      seen[l.lnum], out[#out + 1] = line, line
+    end
+    local ending = l.end_col or l.col
+    local last = line.ranges[#line.ranges]
+    if not last or last[1] ~= l.col or last[2] ~= ending then
+      line.ranges[#line.ranges + 1] = { l.col, ending }
     end
   end
   return true, out

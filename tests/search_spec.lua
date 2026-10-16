@@ -297,4 +297,23 @@ check(
 vim.api.nvim_buf_delete(origin_buf, { force = true })
 vim.fn.delete(origin_root, "rf")
 
+group = "match spans"
+local far = "needle" .. string.rep("x", 250) .. "needle"
+local yes, multiple = eval.run(assert(parser.parse("content:needle")), eval.note("/v/f.md", "f.md", far))
+check(yes and #multiple == 1 and #multiple[1].ranges == 2, "all occurrences retained within a matched line")
+check(#engine.contexts(multiple[1]) == 2, "distant matches get separate context snippets")
+yes, multiple = eval.run(assert(parser.parse("content:/needle/")), eval.note("/v/f.md", "f.md", far))
+check(yes and #multiple[1].ranges == 2, "regex search retains all occurrences")
+yes, multiple = eval.run(assert(parser.parse("task:needle")), eval.note("/v/f.md", "f.md", "- [ ] needle"))
+check(yes and multiple[1].col == 7 and multiple[1].text == "- [ ] needle", "task match columns refer to original line")
+local boolean_prop = eval.note("/v/f.md", "f.md", "")
+boolean_prop._fm = { enabled = false }
+check(eval.run(assert(parser.parse("[enabled]")), boolean_prop), "false property value still exists")
+local tag_lines = engine.lines({
+  files = { { path = "/v/f.md", matches = { { text = "#tag", col = 1 } } } },
+  total = 1,
+  has_content = false,
+})
+check(#tag_lines == 3, "structural tag matches show context")
+
 io.write(("all %d checks passed\n"):format(n_ok))

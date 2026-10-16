@@ -113,7 +113,7 @@ local FN_DOCS = {
 local memo ---@type {key: string, data: table}?
 
 local function vault_data()
-  local out = { tags = {}, folders = {}, notes = {}, props = {} }
+  local out = { tags = {}, folders = {}, notes = {}, props = {}, values = {} }
   local ok, cache = pcall(require, "obsidian.cache")
   if not (ok and cache.is_enabled() and cache.is_ready()) then
     return out
@@ -141,8 +141,20 @@ local function vault_data()
       for _, t in ipairs(row.tags or {}) do
         tags[t] = true
       end
-      for k in pairs(row.properties or {}) do
+      for k, val in pairs(row.properties or {}) do
         props[k] = true
+        local key = k:lower():gsub("%s+", "-")
+        out.values[key] = out.values[key] or {}
+        local function add(v)
+          if type(v) == "table" and vim.islist(v) then
+            for _, el in ipairs(v) do
+              add(el)
+            end
+          elseif type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
+            out.values[key][tostring(v)] = true
+          end
+        end
+        add(val)
       end
     end
   end
@@ -231,16 +243,41 @@ end
 
 local function dataview_items(before)
   local K = kinds()
-  -- inside an open string? (odd number of quotes before cursor — a closed
-  -- `FROM "x"` earlier in the line must NOT hijack later completions)
-  local _, nquotes = before:gsub('"', "")
-  if nquotes % 2 == 1 then
-    if before:match("[Ff][Rr][Oo][Mm]") then
+  local quote, start, escaped
+  for i = 1, #before do
+    local ch = before:sub(i, i)
+    if escaped then
+      escaped = false
+    elseif ch == "\\" then
+      escaped = true
+    elseif quote and ch == quote then
+      quote, start = nil, nil
+    elseif not quote and (ch == '"' or ch == "'") then
+      quote, start = ch, i
+    end
+  end
+  if quote then
+    local prefix = before:sub(1, start - 1)
+    local prop = prefix:match("([%w_%-%.]+)%s*[!<>=]+%s*$")
+    local fn, arg = prefix:match("([%w_]+)%s*%(%s*([%w_%-%.]+)%s*,%s*$")
+    if fn and vim.tbl_contains({ "contains", "icontains", "econtains", "containsword" }, fn:lower()) then
+      prop = arg
+    end
+    if prop then
+      prop = prop:gsub("^this%.", ""):lower()
+      local values = vim.tbl_keys(vault_data().values[prop] or {})
+      table.sort(values)
+      return vim.tbl_map(function(v)
+        local insert = v:gsub("\\", "\\\\"):gsub(vim.pesc(quote), "\\" .. quote)
+        return item(v, K.Value, "existing property value", insert)
+      end, values),
+        start
+    elseif prefix:match("[Ff][Rr][Oo][Mm]%s*$") then
       return vim.tbl_map(function(f)
         return item(f, K.Folder)
       end, vault_data().folders)
     end
-    return {} -- plain string literal: nothing to offer
+    return {}
   end
   if before:match("%[%[[^%]]*$") then
     return vim.tbl_map(function(n)
@@ -287,7 +324,20 @@ function source:get_completions(ctx, callback)
     return function() end
   end
   local before = ctx.line:sub(1, ctx.cursor[2])
-  local items = lang == "query" and query_items(before) or dataview_items(before)
+  local items, start
+  if lang == "query" then
+    items = query_items(before)
+  else
+    items, start = dataview_items(before)
+  end
+  if start then
+    for _, completion in ipairs(items) do
+      completion.textEdit = {
+        newText = completion.insertText,
+        range = { start = { line = row, character = start }, ["end"] = { line = row, character = ctx.cursor[2] } },
+      }
+    end
+  end
   callback({
     items = items,
     is_incomplete_backward = false,

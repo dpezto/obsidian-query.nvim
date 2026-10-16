@@ -1010,6 +1010,65 @@ vim.bo[unsavedbuf].modified = false
 check(idx_mod.this_page(unsavedidx, unsavedbuf, ROOT).status == "open", "unmodified buffers use saved page")
 vim.api.nvim_buf_delete(unsavedbuf, { force = true })
 
+do
+  group = "property completion"
+  local core = require("obsidian-query")
+  local saved_root, saved_gen = core.buf_root, core.generation
+  local saved_cache, saved_types = package.loaded["obsidian.cache"], package.loaded["blink.cmp.types"]
+  core.buf_root = function()
+    return ROOT
+  end
+  core.generation = function()
+    return 999
+  end
+  package.loaded["obsidian.cache"] = {
+    is_enabled = function()
+      return true
+    end,
+    is_ready = function()
+      return true
+    end,
+    notes = {
+      all = function()
+        return INDEX
+      end,
+    },
+  }
+  package.loaded["blink.cmp.types"] = { CompletionItemKind = { Value = 12 } }
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "```dataview", "LIST" })
+  local source = require("obsidian-query.blink").new()
+  for _, prefix in ipairs({
+    'WHERE status = "',
+    'WHERE status != "',
+    'WHERE contains(status, "',
+    'FROM "Journal" WHERE status = "d',
+    "WHERE icontains(status, '",
+  }) do
+    local completion
+    source:get_completions({ bufnr = buf, cursor = { 2, #prefix }, line = prefix }, function(result)
+      completion = result
+    end)
+    check(
+      #completion.items == 2 and completion.items[1].label == "done" and completion.items[2].label == "open",
+      "property values for " .. prefix
+    )
+    check(
+      completion.items[1].textEdit.range["end"].character == #prefix,
+      "value completion replaces current string content"
+    )
+  end
+  local completion
+  local prefix = 'FROM "'
+  source:get_completions({ bufnr = buf, cursor = { 2, #prefix }, line = prefix }, function(result)
+    completion = result
+  end)
+  check(#completion.items == 2 and completion.items[1].label == "Journal", "FROM still completes folders")
+  vim.api.nvim_buf_delete(buf, { force = true })
+  core.buf_root, core.generation = saved_root, saved_gen
+  package.loaded["obsidian.cache"], package.loaded["blink.cmp.types"] = saved_cache, saved_types
+end
+
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"
 local base = require("obsidian-query.render")

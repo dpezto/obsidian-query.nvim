@@ -1482,4 +1482,12 @@ do
   check(ev('hash("café🧪", 0)') == 1515590994826948, "hash uses UTF-16 code units")
 end
 
+do
+  group = "lexical error positions"
+  local _, lexical = parser.parse("LIST\nWHERE @")
+  check(lexical.pos == 12, "lexical errors retain byte position for diagnostics")
+  local _, quoted = parser.parse('LIST "unterminated')
+  check(quoted.pos == 6, "unterminated strings diagnose opening quote")
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

@@ -53,7 +53,7 @@ function M.tokenize(src)
     elseif two == "[[" then
       local close = src:find("]]", i + 2, true)
       if not close then
-        return nil, "unterminated [[link]] at " .. i
+        return nil, "unterminated [[link]] at " .. i, i
       end
       push("LINK", src:sub(i + 2, close - 1), i, close + 1)
       i = close + 2
@@ -74,7 +74,7 @@ function M.tokenize(src)
         end
       end
       if j > n then
-        return nil, "unterminated string at " .. i
+        return nil, "unterminated string at " .. i, i
       end
       push("STRING", table.concat(buf), i, j)
       i = j + 1
@@ -84,7 +84,7 @@ function M.tokenize(src)
         j = j + 1
       end
       if j == i + 1 then
-        return nil, "bad tag at " .. i
+        return nil, "bad tag at " .. i, i
       end
       push("TAG", src:sub(i + 1, j - 1), i, j - 1)
       i = j
@@ -115,7 +115,7 @@ function M.tokenize(src)
       push(c, c, i, i)
       i = i + 1
     else
-      return nil, ("unexpected character %q at %d"):format(c, i)
+      return nil, ("unexpected character %q at %d"):format(c, i), i
     end
   end
   push("EOF", "", n + 1)

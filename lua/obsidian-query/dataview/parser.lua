@@ -479,9 +479,9 @@ end
 ---@return table? query {header, commands}
 ---@return {msg: string, pos: integer}? err
 function M.parse(src)
-  local toks, lerr = lexer.tokenize(src)
+  local toks, lerr, lpos = lexer.tokenize(src)
   if not toks then
-    return nil, { msg = lerr, pos = 1 }
+    return nil, { msg = lerr, pos = lpos or 1 }
   end
   local p = setmetatable({ toks = toks, pos = 1, src = src }, P)
   local ok, res = pcall(function()

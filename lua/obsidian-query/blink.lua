@@ -125,12 +125,12 @@ local function vault_data()
   end
   -- completion re-queries on every keystroke: rebuild only after the vault
   -- data changed (generation bumps on writes, watcher events, vault switches)
-  local key = root .. "\0" .. core.generation()
+  local idx = require("obsidian-query.index").peek(root)
+  local key = root .. "\0" .. core.generation() .. "\0" .. tostring(idx)
   if memo and memo.key == key then
     return memo.data
   end
   local tags, folders, props = {}, {}, {}
-  local idx = require("obsidian-query.index").peek(root)
   local function add_field(k, val)
     props[k] = true
     local key = k:lower():gsub("%s+", "-")

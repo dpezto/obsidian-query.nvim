@@ -1794,4 +1794,54 @@ do
   check(result.ok and result.data.rows[1].cells[1] == true, "page field does not shadow built-in function calls")
 end
 
+do
+  group = "completion index readiness"
+  local core = require("obsidian-query")
+  local saved_root, saved_gen, saved_peek = core.buf_root, core.generation, idx_mod.peek
+  local saved_cache, saved_types = package.loaded["obsidian.cache"], package.loaded["blink.cmp.types"]
+  core.buf_root = function()
+    return ROOT
+  end
+  core.generation = function()
+    return 2000
+  end
+  local ready
+  idx_mod.peek = function()
+    return ready
+  end
+  package.loaded["obsidian.cache"] = {
+    is_enabled = function()
+      return true
+    end,
+    is_ready = function()
+      return true
+    end,
+    notes = {
+      all = function()
+        return INDEX
+      end,
+    },
+  }
+  package.loaded["blink.cmp.types"] = { CompletionItemKind = { Value = 12 } }
+  local source, buf = require("obsidian-query.blink").new(), vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "```dataview", "" })
+  local function complete()
+    local result
+    local prefix = 'WHERE stage = "'
+    source:get_completions({ bufnr = buf, cursor = { 2, #prefix }, line = prefix }, function(r)
+      result = r
+    end)
+    return result.items
+  end
+  check(#complete() == 0, "unready supplements do not invent completion values")
+  ready = { sup = { [ROOT .. "/Papers/reading.md"] = { fields = { stage = "draft" } } } }
+  check(
+    #complete() == 1 and complete()[1].label == "draft",
+    "ready supplement replaces completion memo without a vault edit"
+  )
+  vim.api.nvim_buf_delete(buf, { force = true })
+  core.buf_root, core.generation, idx_mod.peek = saved_root, saved_gen, saved_peek
+  package.loaded["obsidian.cache"], package.loaded["blink.cmp.types"] = saved_cache, saved_types
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

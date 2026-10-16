@@ -26,7 +26,7 @@ function M.parse(body)
 end
 
 function M.key(spec, ctx)
-  return "query\0" .. ctx.root .. "\0" .. spec.body
+  return "query\0" .. ctx.root .. "\0" .. (ctx.buf or "") .. "\0" .. spec.body
 end
 
 -- Obsidian sorts basenames with a case-insensitive numeric collator.
@@ -107,9 +107,29 @@ local function cached_note(path, root)
     content = fd:read("*a")
     fd:close()
   end
-  hit = { stamp = stamp, note = eval.note(path, vim.fs.relpath(root, path) or path, content), results = {} }
+  hit = {
+    stamp = stamp,
+    content = content,
+    note = eval.note(path, vim.fs.relpath(root, path) or path, content),
+    results = {},
+  }
   content_cache[path] = hit
   return hit
+end
+
+local function origin_note(hit)
+  if not hit.origin then
+    local function blank(text)
+      return (text:gsub("[^\n]", " "))
+    end
+    local content = hit.content:gsub("```query.-```", blank)
+    local start = content:find("```query", 1, true)
+    if start then
+      content = content:sub(1, start - 1) .. blank(content:sub(start))
+    end
+    hit.origin = eval.note(hit.note.path, hit.note.rel, content)
+  end
+  return hit.origin
 end
 
 ---Reuse file contents and AST results until the file's full timestamp changes.
@@ -117,6 +137,11 @@ function M.run(spec, ctx, cb)
   if spec.error then
     cb({ error = spec.error })
     return
+  end
+  local this_path = ctx.buf and vim.api.nvim_buf_is_valid(ctx.buf) and vim.api.nvim_buf_get_name(ctx.buf)
+  if this_path then
+    local rel = vim.fs.relpath(vim.uv.fs_realpath(ctx.root) or ctx.root, vim.uv.fs_realpath(this_path) or this_path)
+    this_path = rel and (ctx.root .. "/" .. rel) or nil
   end
   vim.system({ "rg", "--files", "-0", ctx.root }, {}, function(out)
     if out.code > 1 then
@@ -146,11 +171,13 @@ function M.run(spec, ctx, cb)
           if not candidates or candidates[path] then
             local hit = cached_note(path, ctx.root)
             if hit then
-              local result = hit.results[spec.body]
+              local own = path == this_path
+              local key = spec.body .. (own and "\0origin" or "")
+              local result = hit.results[key]
               if not result then
-                local ok, locs = eval.run(spec.ast, hit.note)
+                local ok, locs = eval.run(spec.ast, own and origin_note(hit) or hit.note)
                 result = { ok = ok, locs = locs }
-                hit.results[spec.body] = result
+                hit.results[key] = result
               end
               if result.ok then
                 files[#files + 1] = { path = path, matches = result.locs }

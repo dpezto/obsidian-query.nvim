@@ -266,4 +266,35 @@ check(#found.files == 0, "negated content does not use unsafe positive prefilter
 io.open = saved_open
 vim.fn.delete(root, "rf")
 
+group = "embedded origin exclusion"
+local origin_root = vim.fn.tempname()
+vim.fn.mkdir(origin_root, "p")
+local origin_path = origin_root .. "/origin.md"
+vim.fn.writefile({ "```query", "content:needle", "```" }, origin_path)
+local origin_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_name(origin_buf, origin_path)
+local function origin_search(buf)
+  local result
+  engine.run(engine.parse("content:needle"), { root = origin_root, buf = buf }, function(r)
+    result = r
+  end)
+  check(
+    vim.wait(3000, function()
+      return result ~= nil
+    end),
+    "origin search completes"
+  )
+  return result
+end
+local origin_result = origin_search(origin_buf)
+check(#origin_result.files == 0, "embedded search excludes query fences in its own note")
+check(#origin_search(nil).files == 1, "other notes can match query fence content")
+check(
+  engine.key(engine.parse("needle"), { root = origin_root, buf = origin_buf })
+    ~= engine.key(engine.parse("needle"), { root = origin_root }),
+  "origin-sensitive searches have distinct cache keys"
+)
+vim.api.nvim_buf_delete(origin_buf, { force = true })
+vim.fn.delete(origin_root, "rf")
+
 io.write(("all %d checks passed\n"):format(n_ok))

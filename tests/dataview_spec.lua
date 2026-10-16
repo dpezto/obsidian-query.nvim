@@ -1113,6 +1113,15 @@ do
   package.loaded["obsidian.cache"], _G.Obsidian = saved_cache, saved_ob
 end
 
+group = "link immutability"
+local original_link = value.link("Note.md", { subpath = "H", kind = "header", display = "original" })
+local relabeled = F.link(env, { original_link, "changed" })
+check(
+  relabeled.display == "changed" and original_link.display == "original",
+  "link() display override leaves shared link unchanged"
+)
+check(relabeled.kind == "header" and relabeled.subpath == "H", "link() display override preserves link metadata")
+
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"
 local base = require("obsidian-query.render")

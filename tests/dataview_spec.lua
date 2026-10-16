@@ -1069,6 +1069,13 @@ do
   package.loaded["obsidian.cache"], package.loaded["blink.cmp.types"] = saved_cache, saved_types
 end
 
+group = "wide rendering"
+local wide = require("obsidian-query.render").clip(string.rep("界", 30), 40)
+check(vim.fn.strdisplaywidth(wide) <= 40 and wide:sub(-3) == "…", "clip counts display columns for wide characters")
+local wide_table =
+  dv_render.table_lines({ columns = { "text" }, with_id = false, rows = { { cells = { string.rep("界", 30) } } } })
+check(#wide_table == 5, "wide table cell renders without negative padding")
+
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"
 local base = require("obsidian-query.render")

@@ -1,7 +1,7 @@
 <h1 align="center">obsidian-query.nvim</h1>
 
 <p align="center">
-  Live <a href="https://obsidian.md">Obsidian</a> queries inside Neovim — no Obsidian required.
+  Live <a href="https://obsidian.md">Obsidian</a> queries inside Neovim, no Obsidian required.
 </p>
 
 <p align="center">
@@ -201,7 +201,8 @@ Font, set `icons = "ascii"` or `vim.g.have_nerd_font = false`.
 
 Start typing a query and let your vault fill in the names. The completion
 source suggests keywords and functions, along with your tags, folders,
-notes, and properties. Function documentation is there in the menu too.
+notes, properties, and existing property values inside DQL strings.
+Function documentation is there in the menu too.
 
 For [blink.cmp](https://github.com/Saghen/blink.cmp), add a source to its options:
 
@@ -224,13 +225,21 @@ sources = {
 - `dataviewjs` and `$=` JavaScript expressions aren't supported.
 - Regex is translated to Vim regex. In-pattern backreferences, named groups,
   and inline flags aren't supported.
-- Dataview queries read saved notes from obsidian.nvim's cache.
+- Other notes use obsidian.nvim's saved cache. `this` includes unsaved edits
+  in the containing buffer.
 
 The query engines are implemented in Lua, based on
 [Dataview](https://github.com/blacksmithgu/obsidian-dataview) and
 [Obsidian Search](https://help.obsidian.md/plugins/search). They don't run
 Obsidian's plugins. Dataview settings are read from each vault's
 `.obsidian/plugins/dataview/data.json`, with Dataview defaults for missing keys.
+These settings control date formats, null display, counts, empty-result
+warnings, inline prefixes, column names, and task completion tracking.
+Query errors also appear as diagnostics at the error position in the fence.
+
+Search results sort by filename, ignoring case and ordering digit runs
+numerically. Locale-specific ordering can differ from Obsidian. Matching
+text shows up to 100 characters of context on either side, within the line.
 
 ## Credits
 

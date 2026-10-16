@@ -351,4 +351,33 @@ do
   check(yes and label == nil, "failed OR branch cannot change result title")
 end
 
+group = "bare literal prefilter"
+do
+  local root = vim.fn.tempname()
+  vim.fn.mkdir(root, "p")
+  vim.fn.writefile({ "nothing" }, root .. "/Needle.md")
+  vim.fn.writefile({ "needle" }, root .. "/content.md")
+  vim.fn.writefile({ "unrelated" }, root .. "/skip.md")
+  local saved_open, reads = io.open, 0
+  io.open = function(path, mode)
+    if vim.startswith(path, root .. "/") then
+      reads = reads + 1
+    end
+    return saved_open(path, mode)
+  end
+  local result
+  engine.run(engine.parse("needle"), { root = root }, function(r)
+    result = r
+  end)
+  check(
+    vim.wait(3000, function()
+      return result ~= nil
+    end),
+    "bare literal search completes"
+  )
+  check(#result.files == 2 and reads == 2, "bare literal prefilter unions content and filename candidates")
+  io.open = saved_open
+  vim.fn.delete(root, "rf")
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

@@ -88,20 +88,28 @@ end
 
 local content_cache = {}
 
--- Only positive content literals in conjunctions are necessary conditions.
+-- Positive literals are necessary conditions; bare terms can also match filenames.
 local function required_content(ast)
-  if ast.k == "op" and ast.name == "content" and (ast.arg.k == "word" or ast.arg.k == "phrase") then
-    local text = ast.arg.text
-    if text ~= "" and not text:find("[\128-\255\r\n]") then
-      return text
+  local leaf, filename
+  if ast.k == "word" or ast.k == "phrase" then
+    leaf, filename = ast, true
+  elseif
+    ast.k == "op"
+    and vim.tbl_contains({ "content", "line", "section", "block", "task", "task-todo", "task-done" }, ast.name)
+  then
+    if ast.arg.k == "word" or ast.arg.k == "phrase" then
+      leaf = ast.arg
     end
   elseif ast.k == "and" then
     for _, kid in ipairs(ast.kids) do
-      local text = required_content(kid)
-      if text then
-        return text
+      local term = required_content(kid)
+      if term then
+        return term
       end
     end
+  end
+  if leaf and leaf.text ~= "" and not leaf.text:find("[\128-\255\r\n]") then
+    return { text = leaf.text, filename = filename }
   end
 end
 
@@ -222,7 +230,7 @@ function M.run(spec, ctx, cb)
       return
     end
     vim.system(
-      { "rg", "-l", "--no-ignore", "-0", "-i", "-F", "--glob", "*.md", "--", term, ctx.root },
+      { "rg", "-l", "--no-ignore", "-0", "-i", "-F", "--glob", "*.md", "--", term.text, ctx.root },
       {},
       function(filtered)
         local candidates
@@ -230,6 +238,13 @@ function M.run(spec, ctx, cb)
           candidates = {}
           for _, path in ipairs(vim.split(filtered.stdout or "", "\0", { plain = true, trimempty = true })) do
             candidates[path] = true
+          end
+        end
+        if candidates and term.filename then
+          for _, path in ipairs(paths) do
+            if vim.fn.tolower(vim.fn.fnamemodify(path, ":t")):find(term.text:lower(), 1, true) then
+              candidates[path] = true
+            end
           end
         end
         evaluate(candidates)

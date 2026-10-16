@@ -15,6 +15,13 @@ local M = {}
 
 local sup = {} ---@type table<string, {mtime: integer, fields: table, headers: table}>
 local BATCH = 25
+local generation = 0
+local cached, pending = {}, {}
+
+function M.invalidate()
+  generation = generation + 1
+  cached, pending = {}, {}
+end
 
 ---Obsidian bookmarks (.obsidian/bookmarks.json) -> set of vault-relative paths
 local function read_starred(root)
@@ -161,7 +168,35 @@ function M.get(ctx, cb)
     cb(nil, "workspace not active", true)
     return
   end
+  if cached[ctx.root] then
+    cb(cached[ctx.root])
+    return
+  end
+  if pending[ctx.root] then
+    table.insert(pending[ctx.root], cb)
+    return
+  end
+  local callbacks, gen = { cb }, generation
+  pending[ctx.root] = callbacks
+  local function finish(result, err, transient)
+    if pending[ctx.root] == callbacks then
+      pending[ctx.root] = nil
+    end
+    if generation ~= gen then
+      result, err, transient = nil, "index invalidated", true
+    elseif result then
+      cached[ctx.root] = result
+    end
+    for _, callback in ipairs(callbacks) do
+      callback(result, err, transient)
+    end
+  end
   cache.when_ready(function()
+    local current = _G.Obsidian and Obsidian.dir and vim.fs.normalize(tostring(Obsidian.dir))
+    if generation ~= gen or (current and current ~= vim.fs.normalize(ctx.root)) then
+      finish(nil, "workspace not active", true)
+      return
+    end
     local all = cache.notes.all()
     -- restrict to this workspace
     local rows = {}
@@ -210,7 +245,9 @@ function M.get(ctx, cb)
       if i <= #stale then
         vim.schedule(step)
       else
-        cb({
+        finish({
+          pages = {},
+          generation = gen,
           rows = rows,
           sup = sup,
           inlinks = inlinks,

@@ -756,10 +756,26 @@ check(
 )
 vim.fn.writefile({ "- other" }, index_path)
 rows[index_path].stat.mtime_nsec = 2
+idx_mod.invalidate()
 idx_mod.get({ root = index_root }, function(result)
   indexed = result
 end)
 check(indexed.sup[index_path].lists[1].text == "other", "same-second edit refreshes supplement")
+local shared_index
+idx_mod.get({ root = index_root }, function(result)
+  shared_index = result
+end)
+check(shared_index == indexed, "index shared within an invalidation generation")
+local sharedctx = { index = indexed.rows, pages = indexed.pages, root = index_root, sup = indexed.sup }
+local firstpage = page_mod.get(index_path, sharedctx)
+check(page_mod.get(index_path, sharedctx) == firstpage, "pages shared within generation")
+local cached_result = query.run("LIST", sharedctx)
+check(cached_result.ok and sharedctx.pages[index_path] == firstpage, "query reuses existing page")
+idx_mod.invalidate()
+idx_mod.get({ root = index_root }, function(result)
+  shared_index = result
+end)
+check(shared_index ~= indexed and shared_index.pages[index_path] == nil, "invalidation replaces page generation")
 local spage = page_mod.build(index_path, rows[index_path], { root = index_root })
 check(spage.file.size == 12 and spage.file.mtime.ts == 10, "page reads nested stat (size, mtime)")
 -- relative markdown links resolve against the linking note's folder first

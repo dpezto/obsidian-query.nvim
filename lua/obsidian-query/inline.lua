@@ -13,7 +13,6 @@ local request ---@type table? token of the in-flight index request
 local bufs = {} ---@type table<integer, true> buffers showing inline values
 local stale_au ---@type integer?
 local expr_cache = {} ---@type table<string, table|false> parsed ASTs
-local page_cache = {} ---@type table<string, {gen: integer, page: table}>
 
 local function mark_stale_on_change()
   if stale_au then
@@ -23,6 +22,7 @@ local function mark_stale_on_change()
     group = vim.api.nvim_create_augroup("obsidian_inline_stale", { clear = true }),
     pattern = "*.md",
     callback = function()
+      require("obsidian-query.index").invalidate()
       idx_stale, stale_gen = true, stale_gen + 1
     end,
   })
@@ -64,7 +64,6 @@ end
 function M.invalidate()
   idx, idx_root, idx_stale = nil, nil, false
   idx_pending, request = false, nil
-  page_cache = {}
 end
 
 local function ensure_index(root)
@@ -87,7 +86,6 @@ local function ensure_index(root)
         -- a change that landed mid-request leaves the index stale: refetch
         idx, idx_root, idx_stale = result, root, stale_gen ~= start_gen
         idx_gen = idx_gen + 1
-        page_cache = {}
         rerender()
       end
     end)
@@ -96,22 +94,16 @@ local function ensure_index(root)
 end
 
 local function get_page(path, root)
-  local hit = page_cache[path]
-  if hit and hit.gen == idx_gen then
-    return hit.page
-  end
-  local row = idx.rows[path]
-  if not row then
-    return nil
-  end
-  local page = require("obsidian-query.dataview.page").build(path, row, {
+  idx.pages = idx.pages or {}
+  return require("obsidian-query.dataview.page").get(path, {
+    index = idx.rows,
+    pages = idx.pages,
     root = root,
     sup = idx.sup,
     inlinks = idx.inlinks,
     starred = idx.starred,
+    resolve = idx.resolve,
   })
-  page_cache[path] = { gen = idx_gen, page = page }
-  return page
 end
 
 local ts_query ---@type vim.treesitter.Query?
@@ -173,6 +165,7 @@ function M.parse(ctx)
     if ast then
       local qctx = {
         index = index.rows,
+        pages = index.pages,
         root = root,
         sup = index.sup,
         inlinks = index.inlinks,

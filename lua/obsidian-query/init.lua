@@ -147,6 +147,7 @@ end
 local generation = 0
 
 function mark_all_stale()
+  require("obsidian-query.index").invalidate()
   generation = generation + 1
   for _, entry in pairs(cache) do
     entry.stale = true

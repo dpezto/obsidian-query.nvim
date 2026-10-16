@@ -211,12 +211,27 @@ end
 
 ---------------------------------------------------------------- constructors
 
-R.date = vectorize(function(_, args)
+R.date = vectorize(function(env, args)
   local t = T(args[1])
   if t == "date" then
     return args[1]
   elseif t == "string" then
+    if T(args[2]) == "string" then
+      return M.parse_dateformat(args[1], args[2])
+    end
     return value.parse_date(args[1], true)
+  elseif t == "link" then
+    local link = args[1]
+    local date = value.parse_date(link.display or "", true)
+    if date ~= NULL then
+      return date
+    end
+    date = value.parse_date(vim.fn.fnamemodify(link.path, ":t:r"), true)
+    if date ~= NULL then
+      return date
+    end
+    local page = env.resolve_page and env.resolve_page(link.path)
+    return page and page.file.day or NULL
   end
   return NULL
 end)
@@ -768,6 +783,129 @@ R.dateformat = vectorize(function(_, args)
   end
   return table.concat(out)
 end)
+
+function M.parse_dateformat(text, fmt)
+  if fmt == "x" or fmt == "X" then
+    local n = tonumber(text)
+    return n and value.date(n / (fmt == "x" and 1000 or 1)) or NULL
+  end
+  local patterns = {
+    yyyy = "(%d%d%d%d)",
+    yy = "(%d%d)",
+    MMMM = "([^%s%p%d]+)",
+    MMM = "([^%s%p%d]+)",
+    MM = "(%d%d)",
+    M = "(%d%d?)",
+    dd = "(%d%d)",
+    d = "(%d%d?)",
+    HH = "(%d%d)",
+    H = "(%d%d?)",
+    hh = "(%d%d)",
+    h = "(%d%d?)",
+    mm = "(%d%d)",
+    m = "(%d%d?)",
+    ss = "(%d%d)",
+    s = "(%d%d?)",
+    SSS = "(%d%d%d)",
+    a = "(%a+)",
+  }
+  local tokens =
+    { "yyyy", "MMMM", "MMM", "SSS", "yy", "MM", "dd", "HH", "hh", "mm", "ss", "M", "d", "H", "h", "m", "s", "a" }
+  local pattern, fields, i = {}, {}, 1
+  while i <= #fmt do
+    if fmt:sub(i, i) == "'" then
+      local stop = fmt:find("'", i + 1, true)
+      if not stop then
+        return NULL
+      end
+      pattern[#pattern + 1], i = vim.pesc(fmt:sub(i + 1, stop - 1)), stop + 1
+    else
+      local matched
+      for _, token in ipairs(tokens) do
+        if fmt:sub(i, i + #token - 1) == token then
+          pattern[#pattern + 1], fields[#fields + 1] = patterns[token], token
+          i, matched = i + #token, true
+          break
+        end
+      end
+      if not matched then
+        pattern[#pattern + 1], i = vim.pesc(fmt:sub(i, i)), i + 1
+      end
+    end
+  end
+  local captures = { text:match("^" .. table.concat(pattern) .. "$") }
+  if #captures == 0 or #fields == 0 then
+    return NULL
+  end
+  local parts = { year = os.date("*t").year, month = 1, day = 1, hour = 0, min = 0, sec = 0 }
+  local units = {
+    yyyy = "year",
+    yy = "year",
+    MM = "month",
+    M = "month",
+    dd = "day",
+    d = "day",
+    HH = "hour",
+    H = "hour",
+    hh = "hour",
+    h = "hour",
+    mm = "min",
+    m = "min",
+    ss = "sec",
+    s = "sec",
+  }
+  local meridiem, twelve, millis = nil, false, 0
+  for n, token in ipairs(fields) do
+    local raw = captures[n]
+    if token == "a" then
+      meridiem = raw:lower()
+    elseif token == "SSS" then
+      millis = tonumber(raw)
+    elseif token == "MMMM" or token == "MMM" then
+      local month
+      for m = 1, 12 do
+        if
+          os.date(token == "MMMM" and "%B" or "%b", os.time({ year = 2026, month = m, day = 1 })):lower() == raw:lower()
+        then
+          month = m
+          break
+        end
+      end
+      if not month then
+        return NULL
+      end
+      parts.month = month
+    else
+      local number = tonumber(raw)
+      if token == "yy" then
+        number = number + (number <= 60 and 2000 or 1900)
+      end
+      if token == "h" or token == "hh" then
+        twelve = true
+      end
+      parts[units[token]] = number
+    end
+  end
+  if twelve then
+    if parts.hour < 1 or parts.hour > 12 then
+      return NULL
+    end
+    parts.hour = parts.hour % 12 + (meridiem == "pm" and 12 or 0)
+  end
+  if meridiem and meridiem ~= "am" and meridiem ~= "pm" then
+    return NULL
+  end
+  local iso = ("%04d-%02d-%02dT%02d:%02d:%02d.%03d"):format(
+    parts.year,
+    parts.month,
+    parts.day,
+    parts.hour,
+    parts.min,
+    parts.sec,
+    millis
+  )
+  return value.parse_date(iso, true)
+end
 
 -- Luxon Duration.toFormat token subset: y M d h m s S, '...' literals,
 -- token length = zero padding

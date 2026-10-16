@@ -1741,4 +1741,14 @@ do
   check(F.currencyformat(env, { 999.9, "JPY" }) == "¥1,000", "zero-decimal currency rounds before grouping")
 end
 
+do
+  group = "date overloads"
+  check(ev('date("28/07/2026", "dd/MM/yyyy")').day == 28, "custom date parser returns a date")
+  check(ev('date("28/07/2026", "dd/MM/yyyy")').month == 7, "date accepts numeric format")
+  check(ev('date("July 28, 2026 2:30 PM", "MMMM dd, yyyy h:mm a")').hour == 14, "date accepts named month and meridiem")
+  check(ev('date("2026-02-30", "yyyy-MM-dd")') == value.NULL, "custom date format validates calendar")
+  check(ev('date("1000", "x")').ts == 1, "date accepts epoch milliseconds")
+  check(ev("date([[2026-07-01]])").day == 1, "date accepts date-named links")
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

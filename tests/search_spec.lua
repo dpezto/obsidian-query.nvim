@@ -257,6 +257,12 @@ local function search(text)
   )
   return result
 end
+local executable = vim.fn.executable
+vim.fn.executable = function()
+  return 0
+end
+check(search("needle").error == "ripgrep (rg) not found", "missing ripgrep reports an error")
+vim.fn.executable = executable
 local found = search("content:needle")
 check(#found.files == 1 and reads == 1, "ripgrep prefilter skips nonmatching content files")
 found = search("content:needle")

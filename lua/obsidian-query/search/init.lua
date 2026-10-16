@@ -164,6 +164,11 @@ function M.run(spec, ctx, cb)
     cb({ error = spec.error })
     return
   end
+  -- vim.system throws on a missing executable
+  if vim.fn.executable("rg") ~= 1 then
+    cb({ error = "ripgrep (rg) not found" })
+    return
+  end
   local this_path = ctx.buf and vim.api.nvim_buf_is_valid(ctx.buf) and vim.api.nvim_buf_get_name(ctx.buf)
   if this_path then
     local rel = vim.fs.relpath(vim.uv.fs_realpath(ctx.root) or ctx.root, vim.uv.fs_realpath(this_path) or this_path)

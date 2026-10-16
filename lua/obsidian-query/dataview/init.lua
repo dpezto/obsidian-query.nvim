@@ -14,7 +14,8 @@ function M.parse(body)
 end
 
 function M.key(spec, ctx)
-  return "dataview\0" .. ctx.root .. "\0" .. (ctx.buf or "") .. "\0" .. spec.body
+  local settings = require("obsidian-query.dataview.settings").get(ctx.root)
+  return "dataview\0" .. ctx.root .. "\0" .. (ctx.buf or "") .. "\0" .. tostring(settings) .. "\0" .. spec.body
 end
 
 function M.run(spec, ctx, cb)

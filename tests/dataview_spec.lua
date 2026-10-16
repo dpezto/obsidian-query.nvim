@@ -1506,14 +1506,9 @@ do
     value.eq(page_mod.decode_inline('"one", "two"'), value.array({ "one", "two" })),
     "typed comma-separated inline array"
   )
-  local ctx = vim.tbl_extend(
-    "force",
-    {},
-    CTX,
-    {
-      sup = { [ROOT .. "/Papers/reading.md"] = { fields = { project = "[[2026-07-10]]", score = "4" }, headers = {} } },
-    }
-  )
+  local ctx = vim.tbl_extend("force", {}, CTX, {
+    sup = { [ROOT .. "/Papers/reading.md"] = { fields = { project = "[[2026-07-10]]", score = "4" }, headers = {} } },
+  })
   local typed = query.run('TABLE project.status, score FROM "Papers"', ctx)
   check(
     typed.data.rows[1].cells[1] == "done" and typed.data.rows[1].cells[2] == 4,
@@ -1550,6 +1545,54 @@ do
   )
   check(value.parse_dur("2 days ago") == value.NULL, "duration parsing rejects trailing prose")
   check(value.typeof(page_mod.decode_fm("2 days")) == "duration", "frontmatter durations are typed")
+end
+
+do
+  group = "settings refresh"
+  local root = vim.fn.tempname()
+  vim.fn.mkdir(root .. "/.obsidian/plugins/dataview", "p")
+  root = vim.uv.fs_realpath(root)
+  local path = root .. "/.obsidian/plugins/dataview/data.json"
+  local spec = dv_engine.parse("TABLE file.name")
+  local before = dv_engine.key(spec, { root = root })
+  vim.fn.writefile({ '{"showResultCount":false}' }, path)
+  check(dv_engine.key(spec, { root = root }) ~= before, "settings edits invalidate fence result identity")
+  local core, inline = require("obsidian-query"), require("obsidian-query.inline")
+  local saved_root, saved_get, saved_retry = core.buf_root, idx_mod.get, base.retry
+  local saved_rm = package.loaded["render-markdown.api"]
+  package.loaded["render-markdown.api"] = { render = function() end }
+  base.retry = function() end
+  core.buf_root = function()
+    return root
+  end
+  idx_mod.get = function(_, cb)
+    cb({ rows = {}, sup = {}, inlinks = {}, pages = {} })
+  end
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(buf, root .. "/note.md")
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "a `? 2 + 3` b `= 1`" })
+  vim.fn.writefile({ '{"inlineQueryPrefix":"?"}' }, path)
+  inline.invalidate()
+  local function draw()
+    local parser = vim.treesitter.get_parser(buf, "markdown")
+    parser:parse(true)
+    local marks = {}
+    parser:for_each_tree(function(tree, lang)
+      if lang:lang() == "markdown_inline" then
+        marks = inline.parse({ buf = buf, root = tree:root() })
+      end
+    end)
+    return marks
+  end
+  local marks = draw()
+  check(#marks == 1 and marks[1].opts.virt_text[1][1] == "5", "custom inline query prefix is evaluated")
+  vim.fn.writefile({ '{"enableInlineDataview":false}' }, path)
+  check(#draw() == 0, "inline setting disables rendered values")
+  inline.invalidate()
+  vim.api.nvim_buf_delete(buf, { force = true })
+  core.buf_root, idx_mod.get, base.retry = saved_root, saved_get, saved_retry
+  package.loaded["render-markdown.api"] = saved_rm
+  vim.fn.delete(root, "rf")
 end
 
 io.write(("all %d checks passed\n"):format(n_ok))

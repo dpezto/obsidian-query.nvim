@@ -29,6 +29,45 @@ function M.key(spec, ctx)
   return "query\0" .. ctx.root .. "\0" .. spec.body
 end
 
+-- Obsidian sorts basenames with a case-insensitive numeric collator.
+function M.less(a, b)
+  local x, y = vim.fn.tolower(vim.fn.fnamemodify(a, ":t:r")), vim.fn.tolower(vim.fn.fnamemodify(b, ":t:r"))
+  while x ~= "" and y ~= "" do
+    local nx, ny = x:match("^%d+"), y:match("^%d+")
+    if nx and ny then
+      local vx, vy = nx:gsub("^0+", ""), ny:gsub("^0+", "")
+      if #vx ~= #vy then
+        return #vx < #vy
+      end
+      if vx ~= vy then
+        return vx < vy
+      end
+      x, y = x:sub(#nx + 1), y:sub(#ny + 1)
+    else
+      local cx, cy = vim.fn.strcharpart(x, 0, 1), vim.fn.strcharpart(y, 0, 1)
+      if cx ~= cy then
+        return cx < cy
+      end
+      x, y = x:sub(#cx + 1), y:sub(#cy + 1)
+    end
+  end
+  if x ~= y then
+    return x == ""
+  end
+  return a < b
+end
+
+function M.context(match)
+  local text, col = match.text, match.col or 1
+  local before = vim.fn.strchars(text:sub(1, col - 1))
+  local ending = vim.fn.strchars(text:sub(1, (match.end_col or col + 1) - 1))
+  local first = math.max(0, before - 100)
+  local last = math.min(vim.fn.strchars(text), ending + 100)
+  return (first > 0 and "…" or "")
+    .. vim.trim(vim.fn.strcharpart(text, first, last - first))
+    .. (last < vim.fn.strchars(text) and "…" or "")
+end
+
 ---Evaluate every vault note against the AST, chunked to keep the UI live.
 -- ponytail: reads all .md files per run; rg-prefilter candidates if a vault
 -- ever grows past a few thousand notes
@@ -39,9 +78,7 @@ function M.run(spec, ctx, cb)
   end
   vim.system({ "rg", "--files", ctx.root }, { text = true }, function(out)
     local paths = vim.split(out.stdout or "", "\n", { trimempty = true })
-    table.sort(paths, function(a, b) -- newest first for date-named notes
-      return a > b
-    end)
+    table.sort(paths, M.less)
     local files, total, i = {}, 0, 1
     local function step()
       local stop = math.min(i + BATCH - 1, #paths)
@@ -74,10 +111,6 @@ function M.run(spec, ctx, cb)
   end)
 end
 
-local function trim_text(s)
-  return base.clip(vim.trim(s), 60)
-end
-
 function M.lines(result)
   if result.error then
     return { { { "▏ query: " .. result.error, "DiagnosticError" } } }
@@ -95,7 +128,7 @@ function M.lines(result)
       for j = 1, math.min(#f.matches, MAX_MATCH_LINES) do
         lines[#lines + 1] = {
           { "▏   · ", "RenderMarkdownBullet" },
-          { trim_text(f.matches[j].text), "Comment" },
+          { M.context(f.matches[j]), "Comment" },
         }
       end
       if #f.matches > MAX_MATCH_LINES then

@@ -210,7 +210,7 @@ local function find_plain(text, term, case)
   if needle == "" then
     return 1
   end
-  return (hay:find(needle, 1, true))
+  return hay:find(needle, 1, true)
 end
 
 -- shared PCRE-ish -> vim very-magic translator (lookarounds, alternation)
@@ -223,16 +223,19 @@ end
 local function leaf_on_texts(leaf, texts, case)
   local locs = {}
   for _, t in ipairs(texts) do
-    local col
+    local col, ending
     if leaf.k == "regex" then
       local re = get_regex(leaf.pat, leaf.flags, case)
-      col = re and re:match_str(t.text)
-      col = col and col + 1
+      if re then
+        col, ending = re:match_str(t.text)
+      end
+      col, ending = col and col + 1, ending and ending + 1
     else
-      col = find_plain(t.text, leaf.text, case)
+      col, ending = find_plain(t.text, leaf.text, case)
+      ending = ending and ending + 1
     end
     if col then
-      locs[#locs + 1] = { lnum = t.lnum, col = col, text = t.text }
+      locs[#locs + 1] = { lnum = t.lnum, col = col, end_col = ending, text = t.text }
     end
   end
   return #locs > 0, locs

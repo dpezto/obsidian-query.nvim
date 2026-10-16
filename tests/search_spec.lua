@@ -204,4 +204,25 @@ check(runa("file:img.png"), "attachment matches file: with extension")
 check(not runa("signal"), "attachment has no content to match")
 check(not runa("line:(signal)"), "content operator misses attachment")
 
+group = "embedded rendering"
+local engine = require("obsidian-query.search")
+local order = { "/v/A/Note10.md", "/v/Z/Note2.md", "/v/Z/alpha.md" }
+table.sort(order, engine.less)
+check(
+  order[1] == "/v/Z/alpha.md" and order[2] == "/v/Z/Note2.md",
+  "search sorts basenames alphabetically with numeric ordering"
+)
+local long = string.rep("a", 150) .. "needle" .. string.rep("b", 150)
+local matched, locations = eval.run(assert(parser.parse("content:needle")), eval.note("/v/n.md", "n.md", long))
+check(matched and locations[1].end_col == 157, "match retains end position")
+local context = engine.context(locations[1])
+check(
+  context == "…" .. string.rep("a", 100) .. "needle" .. string.rep("b", 100) .. "…",
+  "context is bounded around match, not file start"
+)
+check(
+  engine.context({ text = "left needle right", col = 6, end_col = 12 }) == "left needle right",
+  "short matches show whole line"
+)
+
 io.write(("all %d checks passed\n"):format(n_ok))

@@ -120,7 +120,7 @@ end
 ---@param item table picker item
 ---@return boolean? done new state, nil when nothing was toggled
 local function toggle_item(item)
-  if not (item and item.pos and item.file) then
+  if not (item and item.pos and item.file) or (item.task and item.task.task == false) then
     return nil
   end
   local buf = vim.fn.bufadd(item.file)
@@ -139,12 +139,14 @@ local function toggle_item(item)
   if settings.recursiveSubTaskCompletion then
     local function children(task)
       for _, child in ipairs(task.children or {}) do
-        local raw = vim.api.nvim_buf_get_lines(buf, child.line - 1, child.line, false)[1]
-        local text = raw and M.toggle_task_line(raw, child.text, settings, desired)
-        if not text then
-          return false
+        if child.task ~= false then
+          local raw = vim.api.nvim_buf_get_lines(buf, child.line - 1, child.line, false)[1]
+          local text = raw and M.toggle_task_line(raw, child.text, settings, desired)
+          if not text then
+            return false
+          end
+          edits[#edits + 1] = { line = child.line, text = text, task = child }
         end
-        edits[#edits + 1] = { line = child.line, text = text, task = child }
         if not children(child) then
           return false
         end
@@ -218,7 +220,8 @@ function M.pick(spec, ctx, result)
     end
   elseif data.kind == "task" then
     local function add_task(task)
-      local box = base.checkbox(task.status)
+      local box = task.task == false and { icon = "• ", highlight = "RenderMarkdownBullet" }
+        or base.checkbox(task.status)
       items[#items + 1] = {
         file = task.path,
         text = note_name(task.path) .. " " .. task.text,

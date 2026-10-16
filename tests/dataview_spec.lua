@@ -1664,4 +1664,32 @@ do
   package.loaded["obsidian.cache"], package.loaded["blink.cmp.types"] = saved_cache, saved_types
 end
 
+do
+  group = "mixed list nesting"
+  local tasks = page_mod.build_tasks("/v/n.md", {
+    { line = 1, indent = 0, text = "parent", state = "x" },
+    { line = 3, indent = 4, text = "nested task", state = " " },
+  }, {}, "n.md")
+  local lists = page_mod.build_lists(
+    {
+      headers = {},
+      lists = {
+        { line = 1, indent = 0, text = "[x] parent" },
+        { line = 2, indent = 2, text = "plain" },
+        { line = 3, indent = 4, text = "[ ] nested task" },
+      },
+    },
+    tasks,
+    "/v/n.md",
+    "n.md"
+  )
+  check(
+    lists[2].parent == 1 and lists[2].children[1] == tasks[2],
+    "plain lists participate in parent and child hierarchy"
+  )
+  check(tasks[1].children[1] == lists[2] and not tasks[1].fullyCompleted, "completion folds through plain list parents")
+  local rendered = flatten(dv_render.task_lines({ groups = { { items = tasks } } }))
+  check(#rendered == 3 and rendered[2]:find("• plain", 1, true), "TASK renders plain descendants without checkboxes")
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

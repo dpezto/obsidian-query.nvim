@@ -219,7 +219,7 @@ end
 ---@param abs_path string
 ---@param rel string
 ---@return table value.array
-function M.build_lists(sup, tasks, abs_path, rel)
+function M.build_lists(sup, tasks, abs_path, rel, ctx)
   if not sup.lists then
     return tasks
   end
@@ -233,24 +233,45 @@ function M.build_lists(sup, tasks, abs_path, rel)
     if t then
       lists[#lists + 1] = t
     else
-      local section
-      for i = #(sup.headers or {}), 1, -1 do
-        if sup.headers[i].line < li.line then
-          section = sup.headers[i]
-          break
-        end
-      end
-      -- ponytail: no children/parent nesting for plain bullets; tasks keep it
-      lists[#lists + 1] = value.task({
-        text = li.text,
-        task = false,
-        line = li.line,
-        indent = li.indent,
-        path = abs_path,
-        section = section and value.link(rel, { subpath = section.text, kind = "header", display = section.text })
-          or value.link(rel),
-        link = value.link(rel, section and { subpath = section.text, kind = "header" } or nil),
-      })
+      local item = M.build_tasks(
+        abs_path,
+        { { line = li.line, indent = li.indent, text = li.text } },
+        sup.headers or {},
+        rel,
+        ctx
+      )[1]
+      item.task, item.status, item.checked, item.completed, item.fullyCompleted = false, nil, nil, nil, nil
+      lists[#lists + 1] = item
+    end
+  end
+  local stack = {}
+  for _, item in ipairs(lists) do
+    item.children, item.parent = value.array({}), NULL
+    while #stack > 0 and stack[#stack].indent >= item.indent do
+      table.remove(stack)
+    end
+    if #stack > 0 then
+      item.parent = stack[#stack].line
+      table.insert(stack[#stack].children, item)
+    end
+    stack[#stack + 1] = item
+  end
+  local function fold(item)
+    local full = true
+    if item.task then
+      full = item.completed
+    end
+    for _, child in ipairs(item.children) do
+      full = fold(child) and full
+    end
+    if item.task then
+      item.fullyCompleted = full
+    end
+    return full
+  end
+  for _, item in ipairs(lists) do
+    if item.parent == NULL then
+      fold(item)
     end
   end
   return value.array(lists)
@@ -339,7 +360,7 @@ function M.build(abs_path, row, ctx)
     aliases = value.array(vim.deepcopy(row.aliases or {})),
     tasks = tasks,
     starred = (ctx.starred and ctx.starred[rel]) or false,
-    lists = M.build_lists(sup, tasks, abs_path, rel),
+    lists = M.build_lists(sup, tasks, abs_path, rel, ctx),
     outlinks = value.array(outlinks),
     inlinks = value.array(inlinks),
     frontmatter = row.properties or {},

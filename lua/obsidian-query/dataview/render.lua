@@ -178,7 +178,8 @@ function M.task_lines(data)
     total = total + 1
     if shown < max_rows() then
       shown = shown + 1
-      local box = base.checkbox(task.status)
+      local box = task.task == false and { icon = "• ", highlight = "RenderMarkdownBullet" }
+        or base.checkbox(task.status)
       lines[#lines + 1] = {
         BAR,
         { string.rep("  ", depth) },

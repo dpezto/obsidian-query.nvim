@@ -514,7 +514,6 @@ the queries, so what highlights is exactly what parses.
 
 - No ```dataviewjs and no `$=` inline JS (JavaScript, needs Obsidian).
 - Dates are naive local time — no timezones or millisecond precision.
-- Plain items in `file.lists` carry no children/parent nesting (tasks do).
 - Regex with in-pattern backreferences, named groups or inline flags is
   rejected (one-time warning; the pattern matches nothing).
 - Results are virtual lines: the cursor cannot enter them — use the <CR>

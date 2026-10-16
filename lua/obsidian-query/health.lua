@@ -14,12 +14,14 @@ function M.check()
     h.error("ripgrep not found — query fences cannot fetch")
   end
 
-  -- treesitter markdown
-  local ts_ok = pcall(vim.treesitter.language.add, "markdown")
-  if ts_ok then
-    h.ok("treesitter markdown parser available")
-  else
-    h.error("treesitter markdown parser missing — fences cannot be located")
+  -- treesitter markdown and inline expressions
+  for _, language in ipairs({ "markdown", "markdown_inline" }) do
+    local ts_ok = pcall(vim.treesitter.language.add, language)
+    if ts_ok then
+      h.ok("treesitter " .. language .. " parser available")
+    else
+      h.error("treesitter " .. language .. " parser missing")
+    end
   end
 
   -- render-markdown api surface

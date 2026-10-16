@@ -1120,6 +1120,19 @@ do
     end
     require("obsidian-query.health").check()
     check(not table.concat(errors):find("cache row", 1, true), "health accepts omitted optional tags and properties")
+    local saved_add = vim.treesitter.language.add
+    vim.treesitter.language.add = function(language)
+      if language == "markdown_inline" then
+        error("missing parser")
+      end
+      return true
+    end
+    require("obsidian-query.health").check()
+    check(
+      table.concat(errors):find("markdown_inline parser missing", 1, true),
+      "health checks inline expression parser"
+    )
+    vim.treesitter.language.add = saved_add
     for method, fn in pairs(saved) do
       vim.health[method] = fn
     end

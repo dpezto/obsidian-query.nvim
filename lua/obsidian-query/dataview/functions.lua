@@ -102,6 +102,109 @@ R.econtains = function(_, args)
   return false
 end
 
+R.icontains = function(env, args)
+  local hay, needle = args[1], args[2]
+  if T(needle) == "array" then
+    local out = {}
+    for i, el in ipairs(needle) do
+      out[i] = R.icontains(env, { hay, el })
+    end
+    return value.array(out)
+  elseif T(hay) == "array" then
+    for _, el in ipairs(hay) do
+      if R.icontains(env, { el, needle }) then
+        return true
+      end
+    end
+    return false
+  elseif T(hay) == "string" and T(needle) == "string" then
+    return vim.fn.tolower(hay):find(vim.fn.tolower(needle), 1, true) ~= nil
+  elseif T(hay) == "object" and T(needle) == "string" then
+    return hay[needle] ~= nil
+  end
+  return value.eq(hay, needle)
+end
+
+R.ldefault = function(_, args)
+  if T(args[1]) == "null" then
+    return args[2]
+  end
+  return args[1]
+end
+
+R.firstvalue = function(_, args)
+  if T(args[1]) == "array" then
+    for _, el in ipairs(args[1]) do
+      if T(el) ~= "null" then
+        return el
+      end
+    end
+  end
+  return NULL
+end
+
+R.reduce = function(env, args)
+  local arr, op = args[1], args[2]
+  if T(arr) ~= "array" or #arr == 0 then
+    return NULL
+  end
+  if T(op) == "array" then
+    local out = {}
+    for i, el in ipairs(op) do
+      out[i] = R.reduce(env, { arr, el })
+    end
+    return value.array(out)
+  end
+  if type(op) ~= "function" and not vim.tbl_contains({ "+", "-", "*", "/", "&", "|" }, op) then
+    return NULL
+  end
+  local acc = arr[1]
+  for i = 2, #arr do
+    if type(op) == "function" then
+      if T(arr[i]) ~= "null" then
+        acc = op({ acc, arr[i] })
+      end
+    elseif op == "&" then
+      acc = value.truthy(acc) and value.truthy(arr[i])
+    elseif op == "|" then
+      acc = value.truthy(acc) or value.truthy(arr[i])
+    else
+      acc = value.arith(op, acc, arr[i])
+    end
+  end
+  return acc
+end
+
+R.product = function(env, args)
+  if T(args[1]) ~= "array" then
+    return args[1]
+  end
+  return R.reduce(env, { args[1], "*" })
+end
+
+R.display = function(env, args)
+  local v = args[1]
+  if T(v) == "null" then
+    return ""
+  end
+  if T(v) == "array" then
+    local out = {}
+    for i, el in ipairs(v) do
+      out[i] = R.display(env, { el })
+    end
+    return table.concat(out, ", ")
+  end
+  local text = value.to_display(v, env.settings)
+  if T(v) ~= "link" and T(v) ~= "string" then
+    return text
+  end
+  text = text:gsub("%[%[([^%]]-)|([^%]]-)%]%]", "%2"):gsub("%[%[([^%]]-)%]%]", "%1")
+  text = text:gsub("!?%[([^%]]-)%]%([^%)]-%)", "%1"):gsub("<[^>]->", "")
+  text = text:gsub("%*%*(.-)%*%*", "%1"):gsub("__(.-)__", "%1"):gsub("~~(.-)~~", "%1")
+  text = text:gsub("%*([^*]-)%*", "%1"):gsub("_([^_]-)_", "%1"):gsub("`([^`]-)`", "%1")
+  return text
+end
+
 ---------------------------------------------------------------- constructors
 
 R.date = vectorize(function(_, args)

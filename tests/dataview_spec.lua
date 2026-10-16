@@ -874,6 +874,21 @@ check(
   "unresolved links retain their paths"
 )
 
+group = "missing functions"
+check(ev('icontains(["Hello", ["World"]], "WORLD")') == true, "icontains recurses and ignores case")
+check(value.eq(ev('icontains("Alpha", ["AL", "z"])'), value.array({ true, false })), "icontains vectorizes needles")
+check(ev("product([2, 3, 4])") == 24 and ev("product([])") == value.NULL, "product values and empty array")
+check(ev('reduce([10, 2, 3], "-")') == 5, "reduce folds operators left to right")
+check(ev("reduce([2, null, 3], (a, b) => a * b)") == 6, "reduce lambda skips nulls")
+check(ev('reduce([true, false], "&")') == false, "reduce boolean operators")
+check(value.eq(ev("ldefault([null, 1], 2)"), value.array({ value.NULL, 1 })), "ldefault preserves arrays")
+check(ev("ldefault(null, false)") == false, "ldefault preserves false fallback")
+check(ev("firstvalue([null, false, 3])") == false and ev("firstvalue([])") == value.NULL, "firstvalue keeps false")
+check(
+  ev('display([null, "**bold**", [[Folder/Note|Label]]])') == ", bold, Label",
+  "display strips markdown and uses link display"
+)
+
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"
 local base = require("obsidian-query.render")

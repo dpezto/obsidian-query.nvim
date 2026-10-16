@@ -29,6 +29,7 @@ date_mt = {
       hour = t.hour,
       minute = t.min,
       second = t.sec,
+      millisecond = math.floor((self.ts - math.floor(self.ts)) * 1000 + 0.5),
       weekday = (t.wday + 5) % 7 + 1, -- 1 = Monday
       dayofyear = t.yday,
       quarter = math.ceil(t.month / 3),
@@ -177,11 +178,8 @@ end
 ---------------------------------------------------------------- parsing
 
 local DATE_PAT = "^(%d%d%d%d)%-(%d%d)%-(%d%d)"
--- ISO "T" or the space Obsidian writes in frontmatter (`created: … 10:44`)
-local TIME_PAT = "^[T ](%d%d):(%d%d):?(%d?%d?)"
-
----ISO 8601 (naive local): yyyy-MM-dd[THH:mm[:ss]]
-function M.parse_date(s)
+---ISO dates and timestamps; file names may carry trailing prose.
+function M.parse_date(s, exact)
   if type(s) ~= "string" then
     return M.NULL
   end
@@ -189,18 +187,57 @@ function M.parse_date(s)
   if not y then
     return M.NULL
   end
-  local rest = s:sub(11)
-  local h, mi, sec = rest:match(TIME_PAT)
-  local ts = os.time({
-    year = tonumber(y),
-    month = tonumber(mo),
-    day = tonumber(d),
-    hour = tonumber(h) or 0,
-    min = tonumber(mi) or 0,
-    sec = tonumber(sec) or 0,
-  })
-  if not ts then
+  y, mo, d = tonumber(y), tonumber(mo), tonumber(d)
+  local ok, noon = pcall(os.time, { year = y, month = mo, day = d, hour = 12, min = 0, sec = 0 })
+  if not ok or not noon then
     return M.NULL
+  end
+  local checked = os.date("*t", noon)
+  if checked.year ~= y or checked.month ~= mo or checked.day ~= d then
+    return M.NULL
+  end
+  local rest = s:sub(11)
+  local h, mi, tail = rest:match("^[T ](%d%d):(%d%d)(.*)$")
+  local sec, fraction, zone = 0, 0, nil
+  if h then
+    h, mi = tonumber(h), tonumber(mi)
+    if tail:sub(1, 1) == ":" then
+      local seconds, remaining = tail:match("^:(%d%d)(.*)$")
+      if not seconds then
+        return M.NULL
+      end
+      sec, tail = tonumber(seconds), remaining
+    end
+    if tail:sub(1, 1) == "." then
+      local digits, remaining = tail:match("^%.(%d+)(.*)$")
+      if not digits then
+        return M.NULL
+      end
+      fraction, tail = tonumber("0." .. digits), remaining
+    end
+    if tail == "Z" or tail == "z" then
+      zone, tail = 0, ""
+    elseif tail:match("^[+-]") then
+      local sign, zh, zm = tail:match("^([+-])(%d%d):?(%d%d)$")
+      if not sign or tonumber(zh) > 23 or tonumber(zm) > 59 then
+        return M.NULL
+      end
+      zone, tail = (tonumber(zh) * 3600 + tonumber(zm) * 60) * (sign == "+" and 1 or -1), ""
+    end
+    if h > 23 or mi > 59 or sec > 59 or (exact and tail ~= "") then
+      return M.NULL
+    end
+  elseif exact and rest ~= "" then
+    return M.NULL
+  end
+  local ts
+  if zone ~= nil then
+    local offset = os.date("%z", noon)
+    local sign, oh, om = offset:match("^([+-])(%d%d)(%d%d)$")
+    local local_offset = (tonumber(oh) * 3600 + tonumber(om) * 60) * (sign == "+" and 1 or -1)
+    ts = noon + local_offset - 12 * 3600 + h * 3600 + mi * 60 + sec - zone + fraction
+  else
+    ts = os.time({ year = y, month = mo, day = d, hour = h or 0, min = mi or 0, sec = sec }) + fraction
   end
   return M.date(ts, h and "datetime" or "date")
 end
@@ -235,6 +272,9 @@ local DUR_UNITS = {
   s = "seconds",
   sec = "seconds",
   secs = "seconds",
+  ms = "milliseconds",
+  millisecond = "milliseconds",
+  milliseconds = "milliseconds",
   second = "seconds",
   seconds = "seconds",
 }
@@ -244,21 +284,24 @@ function M.parse_dur(s)
   if type(s) ~= "string" then
     return M.NULL
   end
-  local ms, months, found = 0, 0, false
-  for num, unit in s:gmatch("(%d+%.?%d*)%s*(%a+)") do
+  local ms, months, found, valid = 0, 0, false, true
+  local rest = s:gsub("([+-]?%d*%.?%d+)%s*(%a+)", function(num, unit)
     local u = DUR_UNITS[unit:lower()]
+    if not u then
+      valid = false
+      return ""
+    end
     if u == "months" then
       months = months + tonumber(num)
-      found = true
     elseif u == "years" then
       months = months + tonumber(num) * 12
-      found = true
-    elseif u then
+    else
       ms = ms + tonumber(num) * DUR_MS[u]
-      found = true
     end
-  end
-  return found and M.dur(ms, months) or M.NULL
+    found = true
+    return ""
+  end)
+  return found and valid and rest:gsub("[,%s]", "") == "" and M.dur(ms, months) or M.NULL
 end
 
 ---------------------------------------------------------------- comparison

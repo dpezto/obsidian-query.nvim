@@ -1510,7 +1510,9 @@ do
     "force",
     {},
     CTX,
-    { sup = { [ROOT .. "/Papers/reading.md"] = { fields = { project = "[[2026-07-10]]", score = "4" }, headers = {} } } }
+    {
+      sup = { [ROOT .. "/Papers/reading.md"] = { fields = { project = "[[2026-07-10]]", score = "4" }, headers = {} } },
+    }
   )
   local typed = query.run('TABLE project.status, score FROM "Papers"', ctx)
   check(
@@ -1523,6 +1525,31 @@ do
     task.score == 2 and task.project.path == "Note" and not task.checked,
     "task fields use shared parser and absent status is open"
   )
+end
+
+do
+  group = "date validation"
+  check(
+    value.parse_date("2026-02-30") == value.NULL and value.parse_date("2026-13-01") == value.NULL,
+    "invalid calendar dates are null"
+  )
+  check(value.parse_date("2026-07-01T25:00") == value.NULL, "invalid times are null")
+  check(page_mod.decode_fm("2026-07-01 prose") == "2026-07-01 prose", "frontmatter date parsing consumes full value")
+  check(
+    value.eq(value.parse_date("2026-07-01T12:30:00Z"), value.parse_date("2026-07-01T06:30:00-06:00")),
+    "timestamp offsets identify same instant"
+  )
+  local millis = value.parse_date("2026-07-01T12:30:00.123Z")
+  check(
+    millis.millisecond == 123 and F.dateformat(env, { millis, "SSS" }) == "123",
+    "fractional seconds survive parsing"
+  )
+  check(
+    value.parse_dur("-2 days").ms == -2 * 86400000 and value.parse_dur("250 ms").ms == 250,
+    "signed durations and milliseconds"
+  )
+  check(value.parse_dur("2 days ago") == value.NULL, "duration parsing rejects trailing prose")
+  check(value.typeof(page_mod.decode_fm("2 days")) == "duration", "frontmatter durations are typed")
 end
 
 io.write(("all %d checks passed\n"):format(n_ok))

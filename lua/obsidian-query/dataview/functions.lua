@@ -216,7 +216,7 @@ R.date = vectorize(function(_, args)
   if t == "date" then
     return args[1]
   elseif t == "string" then
-    return value.parse_date(args[1])
+    return value.parse_date(args[1], true)
   end
   return NULL
 end)
@@ -663,6 +663,7 @@ local FMT = {
   { "hh", "%I" },
   { "mm", "%M" },
   { "ss", "%S" },
+  { "SSS", nil },
   { "EEEE", "%A" },
   { "EEE", "%a" },
   { "ccc", "%a" },
@@ -690,6 +691,8 @@ R.dateformat = vectorize(function(_, args)
             out[#out + 1] = tostring(math.floor(d.ts))
           elseif tok == "x" then
             out[#out + 1] = tostring(math.floor(d.ts * 1000))
+          elseif tok == "SSS" then
+            out[#out + 1] = ("%03d"):format(d.millisecond)
           else
             out[#out + 1] = os.date(pair[2], math.floor(d.ts)) --[[@as string]]
           end

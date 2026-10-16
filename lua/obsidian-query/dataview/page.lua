@@ -14,15 +14,19 @@ end
 function M.decode_fm(v, ctx, source)
   local t = type(v)
   if t == "string" then
-    local d = value.parse_date(v)
+    local d = value.parse_date(v, true)
     if d ~= NULL then
       return d
     end
-    local inner = v:match("^%[%[(.+)%]%]$")
+    local duration = value.parse_dur(v)
+    if duration ~= NULL then
+      return duration
+    end
+    local inner = v:match("^!?%[%[(.+)%]%]$")
     if inner then
       local path, display = inner:match("^([^|]*)|?(.*)$")
       return value.normalize_link(
-        value.link(vim.trim(path), { display = display ~= "" and display or nil }),
+        value.link(vim.trim(path), { display = display ~= "" and display or nil, embed = v:sub(1, 1) == "!" }),
         ctx,
         source
       )
@@ -74,12 +78,20 @@ function M.decode_inline(v, ctx, source)
   end
   local ast = require("obsidian-query.dataview.parser").parse_expr(v)
   if ast and (ast.k == "lit" or ast.k == "list" or ast.k == "datelit") then
-    return require("obsidian-query.dataview.eval").expr(ast, {})
+    return require("obsidian-query.dataview.eval").expr(ast, {
+      normalize_link = function(link)
+        return value.normalize_link(link, ctx, source)
+      end,
+    })
   end
   if v:find(",", 1, true) then
     ast = require("obsidian-query.dataview.parser").parse_expr("[" .. v .. "]")
     if ast then
-      local result = require("obsidian-query.dataview.eval").expr(ast, {})
+      local result = require("obsidian-query.dataview.eval").expr(ast, {
+        normalize_link = function(link)
+          return value.normalize_link(link, ctx, source)
+        end,
+      })
       for _, item in ipairs(result) do
         if item == NULL then
           return v

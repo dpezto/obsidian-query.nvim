@@ -1426,4 +1426,52 @@ do
   package.loaded["render-markdown.api"] = saved_rm
 end
 
+do
+  group = "shared index races"
+  local saved_cache, saved_ob = package.loaded["obsidian.cache"], _G.Obsidian
+  _G.Obsidian = nil
+  local ready, requests = nil, 0
+  package.loaded["obsidian.cache"] = {
+    is_enabled = function()
+      return true
+    end,
+    when_ready = function(cb)
+      requests = requests + 1
+      ready = cb
+    end,
+    notes = {
+      all = function()
+        return {}
+      end,
+    },
+  }
+  idx_mod.invalidate()
+  local first, second
+  idx_mod.get({ root = "/race" }, function(result)
+    first = result
+  end)
+  idx_mod.get({ root = "/race" }, function(result)
+    second = result
+  end)
+  check(requests == 1, "concurrent fences coalesce one index request")
+  ready()
+  check(first ~= nil and first == second, "concurrent fences share completed index")
+  idx_mod.invalidate()
+  local obsolete, transient
+  idx_mod.get({ root = "/race" }, function(result, _, retry)
+    obsolete, transient = result, retry
+  end)
+  idx_mod.invalidate()
+  ready()
+  check(obsolete == nil and transient == true, "invalidation rejects queued old generation")
+  idx_mod.get({ root = "/race" }, function(result)
+    first = result
+  end)
+  _G.Obsidian = { dir = "/other" }
+  ready()
+  check(first == nil, "workspace switch while waiting cannot publish another vault's index")
+  idx_mod.invalidate()
+  package.loaded["obsidian.cache"], _G.Obsidian = saved_cache, saved_ob
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

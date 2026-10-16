@@ -334,16 +334,27 @@ function M.get(ctx, cb)
     local function fresh(s, e)
       return s and s.mtime == e.mtime and s.mtime_nsec == e.mtime_nsec and s.size == e.size
     end
-    local stale = {}
+    local stale, supplements = {}, {}
+    for path in pairs(sup) do
+      if vim.startswith(path, ctx.root .. "/") and not rows[path] then
+        sup[path] = nil
+      end
+    end
     for path, row in pairs(rows) do
       local st = row.stat or row -- v3.16+ nests stats; older rows were flat
       local e = { path = path, mtime = st.mtime_sec or st.mtime, mtime_nsec = st.mtime_nsec, size = st.size }
       if not fresh(sup[path], e) then
         stale[#stale + 1] = e
+      else
+        supplements[path] = sup[path]
       end
     end
     local i = 1
     local function step()
+      if generation ~= gen then
+        finish(nil, "index invalidated", true)
+        return
+      end
       local stop = math.min(i + BATCH - 1, #stale)
       while i <= stop do
         local e = stale[i]
@@ -354,6 +365,7 @@ function M.get(ctx, cb)
           data.mtime, data.mtime_nsec, data.size = e.mtime, e.mtime_nsec, e.size
           sup[e.path] = data
         end
+        supplements[e.path] = sup[e.path]
       end
       if i <= #stale then
         vim.schedule(step)
@@ -362,7 +374,7 @@ function M.get(ctx, cb)
           pages = {},
           generation = gen,
           rows = rows,
-          sup = sup,
+          sup = supplements,
           inlinks = inlinks,
           root = ctx.root,
           resolve = resolve,

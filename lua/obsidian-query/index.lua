@@ -18,6 +18,10 @@ local BATCH = 25
 local generation = 0
 local cached, pending = {}, {}
 
+function M.peek(root)
+  return cached[root]
+end
+
 function M.invalidate()
   generation = generation + 1
   cached, pending = {}, {}

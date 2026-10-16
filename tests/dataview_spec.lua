@@ -1616,4 +1616,52 @@ do
   vim.api.nvim_buf_delete(buf, { force = true })
 end
 
+do
+  group = "inline property completion"
+  local core = require("obsidian-query")
+  local saved_root, saved_gen, saved_peek = core.buf_root, core.generation, idx_mod.peek
+  local saved_cache, saved_types = package.loaded["obsidian.cache"], package.loaded["blink.cmp.types"]
+  core.buf_root = function()
+    return ROOT
+  end
+  core.generation = function()
+    return 1000
+  end
+  idx_mod.peek = function()
+    return { sup = { [ROOT .. "/Papers/reading.md"] = { fields = { stage = { "draft", "review" } } } } }
+  end
+  package.loaded["obsidian.cache"] = {
+    is_enabled = function()
+      return true
+    end,
+    is_ready = function()
+      return true
+    end,
+    notes = {
+      all = function()
+        return INDEX
+      end,
+    },
+  }
+  package.loaded["blink.cmp.types"] = { CompletionItemKind = { Value = 12 } }
+  local buf = vim.api.nvim_create_buf(false, true)
+  local lines = { "~~~~dataview" }
+  for _ = 1, 220 do
+    lines[#lines + 1] = ""
+  end
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  local source, completion = require("obsidian-query.blink").new(), nil
+  local prefix = 'WHERE stage = "'
+  source:get_completions({ bufnr = buf, cursor = { 221, #prefix }, line = prefix }, function(r)
+    completion = r
+  end)
+  check(
+    #completion.items == 2 and completion.items[1].label == "draft",
+    "inline property values complete inside long tilde fences"
+  )
+  vim.api.nvim_buf_delete(buf, { force = true })
+  core.buf_root, core.generation, idx_mod.peek = saved_root, saved_gen, saved_peek
+  package.loaded["obsidian.cache"], package.loaded["blink.cmp.types"] = saved_cache, saved_types
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

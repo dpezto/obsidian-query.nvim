@@ -84,8 +84,8 @@ local TASK_FIELDS = {
 
 -- one-line signatures for the most-used DQL functions; rest get bare names
 local FN_DOCS = {
-  contains = "contains(hay, needle) — string/array/object, case-insensitive",
-  econtains = "econtains(hay, needle) — exact/case-sensitive contains",
+  contains = "contains(hay, needle): recursive, case-sensitive",
+  econtains = "econtains(hay, needle): exact array membership",
   length = "length(array|string|object)",
   date = "date(2026-07-28) / date(today|now|sow|som|soy…) / date(string)",
   dur = "dur(30 days) / dur(string)",
@@ -130,6 +130,22 @@ local function vault_data()
     return memo.data
   end
   local tags, folders, props = {}, {}, {}
+  local idx = require("obsidian-query.index").peek(root)
+  local function add_field(k, val)
+    props[k] = true
+    local key = k:lower():gsub("%s+", "-")
+    out.values[key] = out.values[key] or {}
+    local function add(v)
+      if type(v) == "table" and vim.islist(v) then
+        for _, el in ipairs(v) do
+          add(el)
+        end
+      elseif type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
+        out.values[key][tostring(v)] = true
+      end
+    end
+    add(val)
+  end
   for path, row in pairs(cache.notes.all()) do
     if vim.startswith(path, root .. "/") then
       local rel = path:sub(#root + 2)
@@ -142,19 +158,10 @@ local function vault_data()
         tags[t] = true
       end
       for k, val in pairs(row.properties or {}) do
-        props[k] = true
-        local key = k:lower():gsub("%s+", "-")
-        out.values[key] = out.values[key] or {}
-        local function add(v)
-          if type(v) == "table" and vim.islist(v) then
-            for _, el in ipairs(v) do
-              add(el)
-            end
-          elseif type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
-            out.values[key][tostring(v)] = true
-          end
-        end
-        add(val)
+        add_field(k, val)
+      end
+      for k, val in pairs(idx and idx.sup[path] and idx.sup[path].fields or {}) do
+        add_field(k, val)
       end
     end
   end
@@ -179,17 +186,21 @@ end
 
 ---Language of the fence containing `row` (0-based), or nil.
 local function fence_lang(buf, row)
-  for i = row, math.max(0, row - 200), -1 do
-    local line = vim.api.nvim_buf_get_lines(buf, i, i + 1, false)[1] or ""
-    local lang = line:match("^%s*```(%S*)")
-    if lang then
-      if i == row then
-        return nil -- cursor on a fence delimiter line
+  local marker, lang
+  local fence = require("obsidian-query.index").fence
+  for i, line in ipairs(vim.api.nvim_buf_get_lines(buf, 0, row + 1, false)) do
+    local next_marker = fence(line, marker)
+    if not marker and next_marker then
+      lang = line:match("^%s*[`~]+%s*(%S*)")
+      if i - 1 == row then
+        return nil
       end
-      return (lang == "query" or lang == "dataview") and lang or nil
+    elseif marker and not next_marker then
+      lang = nil
     end
+    marker = next_marker
   end
-  return nil
+  return marker and (lang == "query" or lang == "dataview") and lang or nil
 end
 
 ---------------------------------------------------------------- items

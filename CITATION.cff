@@ -9,5 +9,5 @@ authors:
 repository-code: "https://github.com/dpezto/obsidian-query.nvim"
 url: "https://github.com/dpezto/obsidian-query.nvim"
 license: MIT
-version: 0.1.2 # x-release-please-version
-date-released: "2026-10-10" # x-release-please-date
+version: 0.2.0 # x-release-please-version
+date-released: "2026-10-16" # x-release-please-date

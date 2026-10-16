@@ -7,8 +7,7 @@ local base = require("obsidian-query.render")
 local M = {}
 
 function M.parse(body)
-  body = vim.trim(body)
-  if body == "" then
+  if vim.trim(body) == "" then
     return nil
   end
   return { body = body }

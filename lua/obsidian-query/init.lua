@@ -7,6 +7,8 @@ local M = {}
 -- key -> { result?: table, fetching?: table (request token), stale?: boolean, bufs: table<integer, true> }
 -- (declared before setup: its autocmds close over it)
 local cache = {}
+local diagnostic_ns = vim.api.nvim_create_namespace("obsidian-query")
+local diagnostics = {}
 local mark_all_stale ---@type fun() defined below, with the generation it bumps
 
 ---@param opts obsidian-query.Opts?
@@ -221,6 +223,8 @@ local function mark_stale_on_change()
     group = group,
     callback = function(ev)
       live[ev.buf] = nil
+      diagnostics[ev.buf] = nil
+      vim.diagnostic.reset(diagnostic_ns, ev.buf)
       release(ev.buf)
     end,
   })
@@ -321,6 +325,8 @@ function M.parse(ctx)
   local marks = {}
   local seen = live[ctx.buf] or {}
   live[ctx.buf] = seen
+  local errors = diagnostics[ctx.buf] or {}
+  diagnostics[ctx.buf] = errors
   for _, match in query:iter_matches(ctx.root, ctx.buf) do
     local lang, body, block
     -- iter_matches yields TSNode[] per capture (nvim 0.11+); the fence query
@@ -358,6 +364,30 @@ function M.parse(ctx)
         if not entry.fetching and (not entry.result or entry.stale) then
           refetch(engine, key, spec, qctx)
         end
+        local result = entry.result
+        if result and (result.ok == false or result.error) then
+          local text = vim.treesitter.get_node_text(body, ctx.buf)
+          local prefix = text:sub(1, math.max(0, (result.pos or 1) - 1))
+          local _, newlines = prefix:gsub("\n", "")
+          local row, col
+          if body.range then
+            row, col = body:range()
+          else
+            row, col = block:range()
+            row = row + 1
+          end
+          row = math.min(row + newlines, vim.api.nvim_buf_line_count(ctx.buf) - 1)
+          col = newlines > 0 and #(prefix:match("[^\n]*$") or "") or (col + #prefix)
+          local line = vim.api.nvim_buf_get_lines(ctx.buf, row, row + 1, false)[1] or ""
+          col = math.min(col, #line)
+          errors[#errors + 1] = {
+            lnum = row,
+            col = col,
+            severity = vim.diagnostic.severity.ERROR,
+            source = "obsidian-query",
+            message = result.msg or result.error or "query failed",
+          }
+        end
         local lines = entry.result and engine.lines(entry.result) or render.pending()
         if entry.result then
           entry.shown_id = entry.result_id -- current result reached a render pass
@@ -380,6 +410,8 @@ function M.parse(ctx)
   if ctx.last ~= false then
     live[ctx.buf] = nil
     release(ctx.buf, seen)
+    vim.diagnostic.set(diagnostic_ns, ctx.buf, errors, { virtual_text = false })
+    diagnostics[ctx.buf] = nil
   end
   return marks
 end

@@ -1157,6 +1157,20 @@ do
   local before = fetches
   draw()
   check(fetches == before + 1, "a fence gone from the buffer releases its cache entry")
+  body.text = "  LIST\nWHERE )"
+  vim.api.nvim_buf_set_lines(note, 0, -1, false, { "```dataview", "  LIST", "WHERE )", "```" })
+  draw()
+  local dns = vim.api.nvim_get_namespaces()["obsidian-query"]
+  local diags = vim.diagnostic.get(note, { namespace = dns })
+  check(#diags == 1 and diags[1].lnum == 2 and diags[1].col == 6, "diagnostic points inside fence at parse error")
+  body.text = "LIST"
+  draw()
+  check(#vim.diagnostic.get(note, { namespace = dns }) == 0, "fixed query clears diagnostic")
+  body.text = "LIST WHERE )"
+  draw()
+  fence_on = false
+  core.parse({ buf = note })
+  check(#vim.diagnostic.get(note, { namespace = dns }) == 0, "removed fence clears diagnostic")
   vim.api.nvim_del_augroup_by_name("obsidian_query_stale")
   vim.api.nvim_buf_delete(picker_buf, { force = true })
   vim.api.nvim_buf_delete(note, { force = true })

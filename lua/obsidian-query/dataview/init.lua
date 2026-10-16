@@ -128,13 +128,13 @@ local function toggle_item(item)
   local lnum = item.pos[1]
   local line = vim.api.nvim_buf_get_lines(buf, lnum - 1, lnum, false)[1]
   local settings = item.settings or require("obsidian-query.dataview.settings").defaults
-  local toggled = line and M.toggle_task_line(line, item.task_text, settings)
+  local toggled = line and M.toggle_task_line(line, (item.task and item.task.text) or item.task_text, settings)
   if not toggled then
     vim.notify("obsidian-query: task changed or moved; reopen the query picker", vim.log.levels.WARN)
     return nil
   end
   vim.bo[buf].buflisted = true
-  local edits = { { line = lnum, text = toggled } }
+  local edits = { { line = lnum, text = toggled, task = item.task } }
   local desired = toggled:match("^%s*.-%[([^%]])%]") == "x"
   if settings.recursiveSubTaskCompletion then
     local function children(task)
@@ -144,7 +144,7 @@ local function toggle_item(item)
         if not text then
           return false
         end
-        edits[#edits + 1] = { line = child.line, text = text }
+        edits[#edits + 1] = { line = child.line, text = text, task = child }
         if not children(child) then
           return false
         end
@@ -161,13 +161,20 @@ local function toggle_item(item)
   vim.api.nvim_buf_call(buf, function()
     vim.cmd("silent write")
   end)
+  for _, edit in ipairs(edits) do
+    if edit.task then
+      edit.task.text = edit.text:match("^%s*.-%[[^%]]%]%s(.*)$") or ""
+      edit.task.status = desired and "x" or " "
+      edit.task.checked, edit.task.completed = desired, desired
+    end
+  end
   -- reflect it in the picker row (display segs 3/4 = checkbox, text)
   local state = toggled:match("^%s*.-%[([^%]])%]") or " "
   local done = state == "x" or state == "X"
   local box = base.checkbox(state)
   item.task_text = toggled:match("^%s*.-%[[^%]]%]%s(.*)$") or ""
   item.display[3] = { box.icon, box.highlight }
-  item.display[4][2] = done and "Comment" or "Normal"
+  item.display[4] = { item.task_text, done and "Comment" or "Normal" }
   return done
 end
 

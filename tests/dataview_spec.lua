@@ -727,6 +727,15 @@ check(
   toggle(picked) == false and vim.fn.readfile(task_path)[2] == "- [ ] other",
   "recursive reopening changes subtasks"
 )
+picked.settings.taskCompletionTracking = true
+check(
+  toggle(picked) == true and vim.fn.readfile(task_path)[2]:find("completion::", 1, true),
+  "recursive tracking adds dates"
+)
+check(
+  toggle(picked) == false and vim.fn.readfile(task_path)[2] == "- [ ] other",
+  "recursive tracking can reopen updated child text"
+)
 local task_buf = vim.fn.bufnr(task_path)
 vim.api.nvim_buf_set_lines(task_buf, 0, 0, false, { "- [ ] inserted" })
 check(toggle(picked) == nil and warning ~= nil, "stale picker warns instead of toggling another task")

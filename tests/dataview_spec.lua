@@ -1076,6 +1076,43 @@ local wide_table =
   dv_render.table_lines({ columns = { "text" }, with_id = false, rows = { { cells = { string.rep("界", 30) } } } })
 check(#wide_table == 5, "wide table cell renders without negative padding")
 
+do
+  group = "sparse cache health"
+  local saved_cache, saved_ob = package.loaded["obsidian.cache"], _G.Obsidian
+  _G.Obsidian = nil
+  package.loaded["obsidian.cache"] = {
+    is_enabled = function()
+      return true
+    end,
+    is_ready = function()
+      return true
+    end,
+    notes = {
+      count = function()
+        return 1
+      end,
+      all = function()
+        return { ["/v/a.md"] = { stat = {} } }
+      end,
+    },
+  }
+  local saved, errors = {}, {}
+  for _, method in ipairs({ "start", "ok", "warn", "error" }) do
+    saved[method] = vim.health[method]
+    vim.health[method] = function(msg)
+      if method == "error" then
+        errors[#errors + 1] = msg
+      end
+    end
+  end
+  require("obsidian-query.health").check()
+  check(not table.concat(errors):find("cache row", 1, true), "health accepts omitted optional tags and properties")
+  for method, fn in pairs(saved) do
+    vim.health[method] = fn
+  end
+  package.loaded["obsidian.cache"], _G.Obsidian = saved_cache, saved_ob
+end
+
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"
 local base = require("obsidian-query.render")

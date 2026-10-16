@@ -73,9 +73,9 @@ function M.check()
         h.error('cache row missing "stat" — row schema drifted, page building will break')
       end
       for _, key in ipairs({ "tags", "properties" }) do
-        if probe[key] == nil then
+        if probe[key] ~= nil and type(probe[key]) ~= "table" then
           bad = true
-          h.error(("cache row missing %q — row schema drifted, page building will break"):format(key))
+          h.error(("cache row %q must be a table when present"):format(key))
         end
       end
       local t = tasked and tasked.tasks[1]

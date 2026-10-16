@@ -1735,4 +1735,10 @@ do
   check(value.eq(ev('split("a,b,c", ",", 2)'), value.array({ "a", "b" })), "split honors result limit")
 end
 
+do
+  group = "currency rounding"
+  check(F.currencyformat(env, { 9.999 }) == "$10.00", "currency rounding carries into integer part")
+  check(F.currencyformat(env, { 999.9, "JPY" }) == "¥1,000", "zero-decimal currency rounds before grouping")
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

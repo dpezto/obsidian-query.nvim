@@ -816,9 +816,9 @@ R.currencyformat = vectorize(function(_, args)
   local sym = CURRENCY[code] or (code .. " ")
   local n = args[1]
   local decimals = code == "JPY" and 0 or 2
-  local int = ("%d"):format(math.floor(math.abs(n)))
+  local rounded = ("%." .. decimals .. "f"):format(math.abs(n))
+  local int, frac = rounded:match("^(%d+)(.*)$")
   local grouped = int:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
-  local frac = decimals > 0 and ("%." .. decimals .. "f"):format(math.abs(n) % 1):sub(2) or ""
   return (n < 0 and "-" or "") .. sym .. grouped .. frac
 end)
 

@@ -171,7 +171,7 @@ check(value.cmp(value.array({ 1, 2 }), value.array({ 1, 3 })) == -1, "array elem
 group = "functions"
 local F = functions.registry
 local env = { funcs = F, now = NOW }
-check(F.contains(env, { "Hello World", "world" }) == true, "contains string ci")
+check(F.contains(env, { "Hello World", "world" }) == false, "contains string case-sensitive")
 check(F.contains(env, { value.array({ 1, 2 }), 2 }) == true, "contains array")
 check(F.econtains(env, { "Hello", "hello" }) == false, "econtains case-sensitive")
 check(F.length(env, { value.array({ 1, 2, 3 }) }) == 3, "length")
@@ -1121,6 +1121,24 @@ check(
   "link() display override leaves shared link unchanged"
 )
 check(relabeled.kind == "header" and relabeled.subpath == "H", "link() display override preserves link metadata")
+
+group = "predicate parity"
+check(ev('contains(["hello", ["world"]], "world")') == true, "contains recurses into nested arrays")
+check(
+  ev('contains("Hello", "hello")') == false and ev('icontains("Hello", "hello")') == true,
+  "contains and icontains differ in case"
+)
+check(ev("contains(3, 3)") == true and ev("econtains(null, null)") == true, "contains scalar equality")
+check(value.eq(ev('contains("hello", ["he", "z"])'), value.array({ true, false })), "contains vectorizes needles")
+check(
+  value.eq(ev("default([null, 1, 2], [3, 4])"), value.array({ 3, 1 })),
+  "default zips vectorized arguments to shortest array"
+)
+check(
+  value.eq(ev('startswith(["abc", "xyz"], ["a", "q"])'), value.array({ true, false })),
+  "string functions zip arguments"
+)
+check(value.eq(ev("choice([true, false], 1, 2)"), value.array({ 1, 2 })), "choice vectorizes predicate")
 
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"

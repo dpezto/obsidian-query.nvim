@@ -9,21 +9,32 @@ local M = {}
 local R = {}
 M.registry = R
 
-local function vectorize(f)
-  return function(env, args)
-    if T(args[1]) == "array" then
+local function vectorize(f, positions)
+  positions = positions or { 1 }
+  local call
+  call = function(env, args)
+    local length
+    for _, pos in ipairs(positions) do
+      if T(args[pos]) == "array" then
+        length = math.min(length or math.huge, #args[pos])
+      end
+    end
+    if length then
       local out = {}
-      for i, el in ipairs(args[1]) do
-        local sub = { el }
-        for j = 2, #args do
-          sub[j] = args[j]
+      for i = 1, length do
+        local sub = vim.list_slice(args)
+        for _, pos in ipairs(positions) do
+          if T(args[pos]) == "array" then
+            sub[pos] = args[pos][i]
+          end
         end
-        out[i] = f(env, sub)
+        out[i] = call(env, sub)
       end
       return value.array(out)
     end
     return f(env, args)
   end
+  return call
 end
 
 local function str_fn(f)
@@ -32,7 +43,7 @@ local function str_fn(f)
       return NULL
     end
     return f(unpack(args))
-  end)
+  end, { 1, 2, 3 })
 end
 
 ---------------------------------------------------------------- core
@@ -43,11 +54,11 @@ end
 
 R.default = vectorize(function(_, args)
   return args[T(args[1]) == "null" and 2 or 1]
-end)
+end, { 1, 2 })
 
-R.choice = function(_, args)
+R.choice = vectorize(function(_, args)
   return args[value.truthy(args[1]) and 2 or 3]
-end
+end)
 
 R.length = function(_, args)
   local t = T(args[1])
@@ -61,46 +72,39 @@ R.length = function(_, args)
   return 0
 end
 
-R.contains = function(_, args)
+R.contains = vectorize(function(env, args)
   local hay, needle = args[1], args[2]
-  local t = T(hay)
-  if t == "string" then
-    return T(needle) == "string" and hay:lower():find(needle:lower(), 1, true) ~= nil
-  elseif t == "array" then
+  if T(hay) == "array" then
     for _, el in ipairs(hay) do
-      if
-        value.eq(el, needle)
-        or (T(el) == "string" and T(needle) == "string" and el:lower():find(needle:lower(), 1, true))
-      then
+      if R.contains(env, { el, needle }) then
         return true
       end
     end
     return false
-  elseif t == "object" then
-    return T(needle) == "string" and hay[needle] ~= nil
-  elseif t == "link" then
-    return T(needle) == "string" and value.to_display(hay):lower():find(needle:lower(), 1, true) ~= nil
+  elseif T(hay) == "string" and T(needle) == "string" then
+    return hay:find(needle, 1, true) ~= nil
+  elseif T(hay) == "object" and T(needle) == "string" then
+    return hay[needle] ~= nil
   end
-  return false
-end
+  return value.eq(hay, needle)
+end, { 2 })
 
-R.econtains = function(_, args)
+R.econtains = vectorize(function(_, args)
   local hay, needle = args[1], args[2]
-  local t = T(hay)
-  if t == "string" then
-    return T(needle) == "string" and hay:find(needle, 1, true) ~= nil
-  elseif t == "array" then
+  if T(hay) == "array" then
     for _, el in ipairs(hay) do
       if value.eq(el, needle) then
         return true
       end
     end
     return false
-  elseif t == "object" then
-    return T(needle) == "string" and hay[needle] ~= nil
+  elseif T(hay) == "string" and T(needle) == "string" then
+    return hay:find(needle, 1, true) ~= nil
+  elseif T(hay) == "object" and T(needle) == "string" then
+    return hay[needle] ~= nil
   end
-  return false
-end
+  return value.eq(hay, needle)
+end, { 2 })
 
 R.icontains = function(env, args)
   local hay, needle = args[1], args[2]

@@ -48,6 +48,8 @@ jobs:
         with:
           neovim: true
           version: ${{ matrix.neovim }}
+      # Search queries list and prefilter vault files with ripgrep
+      - run: sudo apt-get install -yq ripgrep
       - if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.neovim == 'stable') }}
         name: test
         run: make test picker SNACKS=.deps/snacks.nvim

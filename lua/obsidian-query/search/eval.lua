@@ -3,8 +3,7 @@
 -- eval.note(path, rel, content) -> Note   (lazy fm/tags/sections/blocks/tasks)
 -- eval.run(ast, note)           -> ok: boolean, locs: {lnum, col, text}[]
 --
--- Case: Obsidian smart case — term with an uppercase letter is case-sensitive,
--- else insensitive; match-case:/ignore-case: force it for their subtree.
+-- Embedded search ignores case by default; match-case:/ignore-case: override it.
 local M = {}
 
 ---------------------------------------------------------------- note model
@@ -191,7 +190,7 @@ function Note:tasks()
       for _, pat in ipairs(TASK_PATTERNS) do
         local state, text = l:match(pat)
         if state then
-          tasks[#tasks + 1] = { lnum = i, state = state, text = text }
+          tasks[#tasks + 1] = { lnum = i, state = state, text = text, offset = #l - #text }
           break
         end
       end
@@ -203,14 +202,14 @@ end
 
 ---------------------------------------------------------------- text matching
 
-local function find_plain(text, term, case)
-  local sensitive = case == "sensitive" or (case == "smart" and term:match("%u") ~= nil)
-  local hay = sensitive and text or text:lower()
-  local needle = sensitive and term or term:lower()
+local function find_plain(text, term, case, start)
+  local sensitive = case == "sensitive"
+  local hay = sensitive and text or vim.fn.tolower(text)
+  local needle = sensitive and term or vim.fn.tolower(term)
   if needle == "" then
     return 1
   end
-  return (hay:find(needle, 1, true))
+  return hay:find(needle, start or 1, true)
 end
 
 -- shared PCRE-ish -> vim very-magic translator (lookarounds, alternation)
@@ -222,17 +221,41 @@ end
 -- leaf match over an array of {lnum, text}; returns ok, locs
 local function leaf_on_texts(leaf, texts, case)
   local locs = {}
-  for _, t in ipairs(texts) do
-    local col
-    if leaf.k == "regex" then
-      local re = get_regex(leaf.pat, leaf.flags, case)
-      col = re and re:match_str(t.text)
-      col = col and col + 1
-    else
-      col = find_plain(t.text, leaf.text, case)
+  local regex = require("obsidian-query.regex")
+  local pattern
+  if leaf.k == "regex" then
+    if not get_regex(leaf.pat, leaf.flags, case) then
+      return false, {}
     end
-    if col then
-      locs[#locs + 1] = { lnum = t.lnum, col = col, text = t.text }
+    pattern = "\\v" .. ((leaf.flags:find("i") or case == "insensitive") and "\\c" or "\\C") .. regex.to_vim(leaf.pat)
+  end
+  for _, t in ipairs(texts) do
+    local start = 1
+    while start <= #t.text + 1 do
+      local col, ending
+      if pattern then
+        local match = vim.fn.matchstrpos(t.text, pattern, start - 1)
+        if match[2] >= 0 then
+          col, ending = match[2] + 1, match[3] + 1
+        end
+      else
+        col, ending = find_plain(t.text, leaf.text, case, start)
+        ending = ending and ending + 1 or col
+      end
+      if not col then
+        break
+      end
+      locs[#locs + 1] = {
+        lnum = t.lnum,
+        kind = t.kind,
+        col = col + (t.offset or 0),
+        end_col = ending + (t.offset or 0),
+        text = t.display or t.text,
+      }
+      if ending <= col then
+        break
+      end
+      start = ending
     end
   end
   return #locs > 0, locs
@@ -353,7 +376,10 @@ end
 
 local function prop_match(note, name, value)
   local fm = note:frontmatter()
-  local v = fm[name] or fm[name:lower()]
+  local v = fm[name]
+  if v == nil then
+    v = fm[name:lower()]
+  end
   if v == nil then
     return false, {}
   end
@@ -376,7 +402,7 @@ local function task_texts(note, which)
       or (which == "task-todo" and t.state == " ")
       or (which == "task-done" and t.state ~= " ")
     if keep then
-      texts[#texts + 1] = { lnum = t.lnum, text = t.text }
+      texts[#texts + 1] = { lnum = t.lnum, text = t.text, offset = t.offset, display = note.lines[t.lnum] }
     end
   end
   return texts
@@ -384,32 +410,26 @@ end
 
 ---@param ast table
 ---@param note table
----@param case "smart"|"sensitive"|"insensitive"
+---@param case "sensitive"|"insensitive"
 ---@return boolean ok
 ---@return table locs
 eval_node = function(ast, note, case)
   local k = ast.k
   if k == "and" or k == "or" or k == "not" then
     return eval_scoped(ast, note, nil, case)
-  elseif k == "word" or k == "phrase" then
-    -- bare terms match content or the filename (Obsidian unions both)
+  elseif k == "word" or k == "phrase" or k == "regex" then
     local ok, locs = leaf_on_texts(ast, content_texts(note), case)
-    if ok then
-      return true, locs
-    end
-    return find_plain(note.name, ast.text, case) ~= nil, {}
-  elseif k == "regex" then
-    return leaf_on_texts(ast, content_texts(note), case)
+    local filename, matches = leaf_on_texts(ast, { { lnum = 0, text = note.name, kind = "filename" } }, case)
+    vim.list_extend(locs, matches)
+    return ok or filename, locs
   elseif k == "prop" then
     return prop_match(note, ast.name, ast.value)
   elseif k == "op" then
     local n, arg = ast.name, ast.arg
     if n == "file" then
-      local ok = eval_scoped(arg, note, { { lnum = 1, text = note.name } }, case)
-      return ok, {}
+      return eval_scoped(arg, note, { { lnum = 0, text = note.name, kind = "filename" } }, case)
     elseif n == "path" then
-      local ok = eval_scoped(arg, note, { { lnum = 1, text = note.rel } }, case)
-      return ok, {}
+      return eval_scoped(arg, note, { { lnum = 0, text = note.rel, kind = "path" } }, case)
     elseif n == "content" then
       return eval_scoped(arg, note, content_texts(note), case)
     elseif n == "tag" then
@@ -429,9 +449,9 @@ eval_node = function(ast, note, case)
     elseif n == "task" or n == "task-todo" or n == "task-done" then
       return eval_scoped(arg, note, task_texts(note, n), case)
     elseif n == "match-case" then
-      return eval_scoped(arg, note, content_texts(note), "sensitive")
+      return eval_scoped(arg, note, nil, "sensitive")
     elseif n == "ignore-case" then
-      return eval_scoped(arg, note, content_texts(note), "insensitive")
+      return eval_scoped(arg, note, nil, "insensitive")
     end
   end
   return false, {}
@@ -440,21 +460,36 @@ end
 ---@return boolean ok
 ---@return {lnum: integer, col: integer, text: string}[] locs (sorted, deduped by line)
 function M.run(ast, note)
-  local ok, locs = eval_node(ast, note, "smart")
+  local ok, locs = eval_node(ast, note, "insensitive")
   if not ok then
     return false, {}
   end
   table.sort(locs, function(a, b)
     return a.lnum < b.lnum or (a.lnum == b.lnum and a.col < b.col)
   end)
-  local seen, out = {}, {}
+  local seen, out, title = {}, {}, nil
   for _, l in ipairs(locs) do
-    if not seen[l.lnum] then
-      seen[l.lnum] = true
-      out[#out + 1] = l
+    if l.kind == "path" then
+      title = note.rel
+    elseif l.kind == "filename" then
+      if not title and (l.end_col or l.col) > #M.label(note.path) + 1 then
+        title = note.name
+      end
+    else
+      local line = seen[l.lnum]
+      if not line then
+        line = l
+        line.ranges = {}
+        seen[l.lnum], out[#out + 1] = line, line
+      end
+      local ending = l.end_col or l.col
+      local last = line.ranges[#line.ranges]
+      if not last or last[1] ~= l.col or last[2] ~= ending then
+        line.ranges[#line.ranges + 1] = { l.col, ending }
+      end
     end
   end
-  return true, out
+  return true, out, title
 end
 
 return M

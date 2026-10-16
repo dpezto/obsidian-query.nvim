@@ -15,6 +15,17 @@ local M = {}
 
 local sup = {} ---@type table<string, {mtime: integer, fields: table, headers: table}>
 local BATCH = 25
+local generation = 0
+local cached, pending = {}, {}
+
+function M.peek(root)
+  return cached[root]
+end
+
+function M.invalidate()
+  generation = generation + 1
+  cached, pending = {}, {}
+end
 
 ---Obsidian bookmarks (.obsidian/bookmarks.json) -> set of vault-relative paths
 local function read_starred(root)
@@ -59,14 +70,47 @@ function M.fence(line, open)
   return open
 end
 
-local function extract_sup(path)
-  local fd = io.open(path, "r")
-  if not fd then
+---Balanced wrappers keep wiki links intact inside bracketed fields.
+function M.inline_fields(line)
+  local fields, start = {}, 1
+  while start <= #line do
+    local first, _, key, body = line:find("[%[%(]([%w][%w%s_/%-]-)::%s*()", start)
+    if not first then
+      break
+    end
+    local opener = line:sub(first, first)
+    local closer = opener == "[" and "]" or ")"
+    local depth, i = 1, body
+    while i <= #line and depth > 0 do
+      local ch = line:sub(i, i)
+      if ch == opener then
+        depth = depth + 1
+      elseif ch == closer then
+        depth = depth - 1
+      end
+      i = i + 1
+    end
+    if depth == 0 then
+      fields[#fields + 1] = { key = vim.trim(key):lower():gsub("%s+", "-"), value = vim.trim(line:sub(body, i - 2)) }
+      start = i
+    else
+      start = first + 1
+    end
+  end
+  return fields
+end
+
+local function extract_sup(path, lines)
+  local fd = not lines and io.open(path, "r") or nil
+  if not lines and not fd then
     return { fields = {}, headers = {}, lists = {} }
   end
-  local fields, headers, lists = {}, {}, {}
+  local fields, headers, lists, body_lines = {}, {}, {}, {}
   local lnum, fence, in_fm = 0, nil, false
-  for line in fd:lines() do
+  local iterator = fd and fd:lines() or function()
+    return lines[lnum + 1]
+  end
+  for line in iterator do
     lnum = lnum + 1
     local body = false
     -- frontmatter delimiters: YAML `- item` lines must not count as lists
@@ -80,6 +124,7 @@ local function extract_sup(path)
       body = not was_fence and not fence
     end
     if body then
+      body_lines[lnum] = true
       local hashes, text = line:match("^(#+)%s+(.*)$")
       if hashes then
         headers[#headers + 1] = { line = lnum, level = #hashes, text = text }
@@ -101,8 +146,8 @@ local function extract_sup(path)
         add_field(vim.trim(k):lower():gsub("%s+", "-"), v)
       end
       -- bracketed inline fields: [key:: v] / (key:: v)
-      for bk, bv in line:gmatch("[%[%(]([%w][%w%s_/%-]-)::%s*([^%]%)]*)[%]%)]") do
-        add_field(vim.trim(bk):lower():gsub("%s+", "-"), vim.trim(bv))
+      for _, field in ipairs(M.inline_fields(line)) do
+        add_field(field.key, field.value)
       end
       -- list items (bulleted or numbered); the cache only indexes checkboxes
       local ws, text = line:match("^(%s*)[%-%*%+]%s+(.+)$")
@@ -114,36 +159,150 @@ local function extract_sup(path)
       end
     end
   end
-  fd:close()
-  return { fields = fields, headers = headers, lists = lists }
+  if fd then
+    fd:close()
+  end
+  return { fields = fields, headers = headers, lists = lists, body_lines = body_lines }
 end
 M._extract_sup = extract_sup
 
 ---Resolve a links_out target (note name or rel path) to an absolute path.
-local function make_resolver(rows)
-  local by_name = {}
+function M.make_resolver(rows)
+  local by_name, by_path = {}, {}
   for path in pairs(rows) do
-    by_name[vim.fn.fnamemodify(path, ":t:r"):lower()] = path
-    by_name[vim.fn.fnamemodify(path, ":t"):lower()] = path
+    local name = vim.fn.tolower(vim.fn.fnamemodify(path, ":t"))
+    by_name[name] = by_name[name] or {}
+    by_name[name][#by_name[name] + 1] = path
+    by_path[vim.fn.tolower(path)] = path
   end
-  ---@param source string? linking note; markdown links resolve against its folder first
-  return function(target, root, source)
-    if not target or target == "" then
+  for _, paths in pairs(by_name) do
+    table.sort(paths, function(a, b)
+      return #a < #b or (#a == #b and a < b)
+    end)
+  end
+  local function exact(path)
+    path = vim.fn.tolower(vim.fs.normalize(path))
+    return by_path[path] or by_path[path .. ".md"]
+  end
+  return function(target, root, source, relative)
+    if not target then
       return nil
     end
-    target = target:gsub("#.*$", ""):gsub("%s+$", "")
-    if source then
-      local rel = vim.fs.normalize(vim.fs.dirname(source) .. "/" .. target)
-      if rows[rel] or rows[rel .. ".md"] then
-        return rows[rel] and rel or (rel .. ".md")
+    target = vim.trim(target:gsub("[|#].*$", ""))
+    if target == "" then
+      return source and rows[source] and source or nil
+    end
+    if target:match("^%a[%w+%.%-]*:") then
+      return nil
+    end
+    if relative then
+      target = vim.uri_decode(target)
+    end
+    if source and (relative or target:match("^%.%./") or target:match("^%./")) then
+      local path = exact(vim.fs.dirname(source) .. "/" .. target)
+      if path then
+        return path
       end
     end
-    local direct = root .. "/" .. target
-    if rows[direct] or rows[direct .. ".md"] then
-      return rows[direct] and direct or (direct .. ".md")
+    local path = exact(root .. "/" .. target:gsub("^/", ""))
+    if path then
+      return path
     end
-    return by_name[vim.fn.fnamemodify(target, ":t:r"):lower()]
+    if target:sub(1, 1) == "/" then
+      return nil
+    end
+    target = vim.fn.tolower(target)
+    local name = vim.fn.fnamemodify(target, ":t")
+    local paths = by_name[name]
+    if not paths then
+      target, paths = target .. ".md", by_name[name .. ".md"]
+    end
+    local fallback
+    local folder = source and vim.fn.tolower(vim.fs.dirname(source) .. "/")
+    for _, candidate in ipairs(paths or {}) do
+      local lower = vim.fn.tolower(candidate)
+      if vim.endswith(lower, "/" .. target) then
+        if folder and vim.startswith(lower, folder) then
+          return candidate
+        end
+        fallback = fallback or candidate
+      end
+    end
+    return fallback
   end
+end
+
+---Only the containing note uses unsaved content; shared saved pages stay immutable.
+function M.this_page(idx, buf, root)
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then
+    return nil
+  end
+  local path = vim.api.nvim_buf_get_name(buf)
+  local ctx = {
+    root = root,
+    index = idx.rows,
+    pages = idx.pages,
+    sup = idx.sup,
+    inlinks = idx.inlinks,
+    starred = idx.starred,
+    resolve = idx.resolve,
+  }
+  local page = require("obsidian-query.dataview.page")
+  if not vim.bo[buf].modified then
+    return page.get(path, ctx)
+  end
+  idx.buffer_pages = idx.buffer_pages or {}
+  local tick = vim.api.nvim_buf_get_changedtick(buf)
+  local hit = idx.buffer_pages[buf]
+  if hit and hit.tick == tick and hit.path == path then
+    return hit.page
+  end
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local supplement = extract_sup(path, lines)
+  local note = require("obsidian-query.search.eval").note(path, path, table.concat(lines, "\n"))
+  local row = vim.tbl_extend("force", {}, idx.rows[path] or {})
+  row.properties = note:frontmatter()
+  row.stat = vim.tbl_extend(
+    "force",
+    {},
+    row.stat or row,
+    { size = #table.concat(lines, "\n") + (vim.bo[buf].endofline and 1 or 0) }
+  )
+  row.aliases = row.properties.aliases or row.properties.alias or {}
+  if type(row.aliases) == "string" then
+    row.aliases = { row.aliases }
+  end
+  row.tags, row.tasks, row.links_out = {}, {}, {}
+  local seen = {}
+  for _, tag in ipairs(note:tags()) do
+    if not seen[tag.tag] then
+      row.tags[#row.tags + 1], seen[tag.tag] = tag.tag, true
+    end
+  end
+  for _, li in ipairs(supplement.lists) do
+    local state, text = li.text:match("^%[([^%]])%]%s*(.*)$")
+    if state then
+      row.tasks[#row.tasks + 1] = { line = li.line, indent = li.indent, state = state, text = text }
+    end
+  end
+  local ok, refs = pcall(require, "obsidian.parse.refs")
+  for i, line in ipairs(lines) do
+    if supplement.body_lines[i] and ok then
+      for _, ref in ipairs(refs.extract(line, { row = i - 1, lexical = true })) do
+        if ref.kind == "wiki" or ref.kind == "markdown" then
+          row.links_out[#row.links_out + 1] = ref
+        end
+      end
+    elseif supplement.body_lines[i] then
+      for target in line:gmatch("%[%[([^|%]]+)[^%]]*%]%]") do
+        row.links_out[#row.links_out + 1] = { target = target, kind = "wiki" }
+      end
+    end
+  end
+  ctx.sup = { [path] = supplement }
+  local result = page.build(path, row, ctx)
+  idx.buffer_pages[buf] = { tick = tick, path = path, page = result }
+  return result
 end
 
 ---@param ctx {root: string}
@@ -161,7 +320,35 @@ function M.get(ctx, cb)
     cb(nil, "workspace not active", true)
     return
   end
+  if cached[ctx.root] then
+    cb(cached[ctx.root])
+    return
+  end
+  if pending[ctx.root] then
+    table.insert(pending[ctx.root], cb)
+    return
+  end
+  local callbacks, gen = { cb }, generation
+  pending[ctx.root] = callbacks
+  local function finish(result, err, transient)
+    if pending[ctx.root] == callbacks then
+      pending[ctx.root] = nil
+    end
+    if generation ~= gen then
+      result, err, transient = nil, "index invalidated", true
+    elseif result then
+      cached[ctx.root] = result
+    end
+    for _, callback in ipairs(callbacks) do
+      callback(result, err, transient)
+    end
+  end
   cache.when_ready(function()
+    local current = _G.Obsidian and Obsidian.dir and vim.fs.normalize(tostring(Obsidian.dir))
+    if generation ~= gen or (current and current ~= vim.fs.normalize(ctx.root)) then
+      finish(nil, "workspace not active", true)
+      return
+    end
     local all = cache.notes.all()
     -- restrict to this workspace
     local rows = {}
@@ -171,12 +358,14 @@ function M.get(ctx, cb)
       end
     end
     -- inlinks inversion (cache rows only, no IO)
-    local resolve = make_resolver(rows)
+    local resolve = M.make_resolver(rows)
     local inlinks = {}
     for path, row in pairs(rows) do
+      local seen = {}
       for _, l in ipairs(row.links_out or {}) do
-        local target = resolve(l.target, ctx.root, l.kind == "markdown" and path or nil)
-        if target then
+        local target = resolve(l.target, ctx.root, path, l.kind == "markdown")
+        if target and not seen[target] then
+          seen[target] = true
           inlinks[target] = inlinks[target] or {}
           table.insert(inlinks[target], path)
         end
@@ -186,16 +375,27 @@ function M.get(ctx, cb)
     local function fresh(s, e)
       return s and s.mtime == e.mtime and s.mtime_nsec == e.mtime_nsec and s.size == e.size
     end
-    local stale = {}
+    local stale, supplements = {}, {}
+    for path in pairs(sup) do
+      if vim.startswith(path, ctx.root .. "/") and not rows[path] then
+        sup[path] = nil
+      end
+    end
     for path, row in pairs(rows) do
       local st = row.stat or row -- v3.16+ nests stats; older rows were flat
       local e = { path = path, mtime = st.mtime_sec or st.mtime, mtime_nsec = st.mtime_nsec, size = st.size }
       if not fresh(sup[path], e) then
         stale[#stale + 1] = e
+      else
+        supplements[path] = sup[path]
       end
     end
     local i = 1
     local function step()
+      if generation ~= gen then
+        finish(nil, "index invalidated", true)
+        return
+      end
       local stop = math.min(i + BATCH - 1, #stale)
       while i <= stop do
         local e = stale[i]
@@ -206,11 +406,21 @@ function M.get(ctx, cb)
           data.mtime, data.mtime_nsec, data.size = e.mtime, e.mtime_nsec, e.size
           sup[e.path] = data
         end
+        supplements[e.path] = sup[e.path]
       end
       if i <= #stale then
         vim.schedule(step)
       else
-        cb({ rows = rows, sup = sup, inlinks = inlinks, root = ctx.root, starred = read_starred(ctx.root) })
+        finish({
+          pages = {},
+          generation = gen,
+          rows = rows,
+          sup = supplements,
+          inlinks = inlinks,
+          root = ctx.root,
+          resolve = resolve,
+          starred = read_starred(ctx.root),
+        })
       end
     end
     step()

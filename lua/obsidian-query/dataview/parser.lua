@@ -434,7 +434,11 @@ function P:commands()
         self:err("expected BY after GROUP")
       end
       self:advance()
-      cmds[#cmds + 1] = { cmd = "group", expr = self:expr(), alias = self:alias() }
+      local start = self:tok().pos
+      local expr = self:expr()
+      local stop = self:tok().pos
+      cmds[#cmds + 1] =
+        { cmd = "group", expr = expr, alias = self:alias(), src = vim.trim(self.src:sub(start, stop - 1)) }
     elseif kw == "FLATTEN" then
       self:advance()
       local start = self:tok().pos
@@ -475,9 +479,9 @@ end
 ---@return table? query {header, commands}
 ---@return {msg: string, pos: integer}? err
 function M.parse(src)
-  local toks, lerr = lexer.tokenize(src)
+  local toks, lerr, lpos = lexer.tokenize(src)
   if not toks then
-    return nil, { msg = lerr, pos = 1 }
+    return nil, { msg = lerr, pos = lpos or 1 }
   end
   local p = setmetatable({ toks = toks, pos = 1, src = src }, P)
   local ok, res = pcall(function()

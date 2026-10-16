@@ -22,25 +22,7 @@ local function resolve_link_path(raw, ctx, source)
   if target == "" then
     return ctx.this_path
   end
-  if source then
-    local rel = vim.fs.normalize(vim.fs.dirname(source) .. "/" .. target)
-    if ctx.index[rel] or ctx.index[rel .. ".md"] then
-      return ctx.index[rel] and rel or (rel .. ".md")
-    end
-  end
-  local direct = ctx.root .. "/" .. target
-  if ctx.index[direct] then
-    return direct
-  end
-  if ctx.index[direct .. ".md"] then
-    return direct .. ".md"
-  end
-  local want = vim.fn.fnamemodify(target, ":t:r"):lower()
-  for path in pairs(ctx.index) do
-    if vim.fn.fnamemodify(path, ":t:r"):lower() == want then
-      return path
-    end
-  end
+  return ctx.resolve(target, ctx.root, source or ctx.this_path, source ~= nil)
 end
 
 local function source_set(src, ctx)
@@ -58,9 +40,10 @@ local function source_set(src, ctx)
     return out
   elseif k == "s_folder" then
     local out = {}
-    local prefix = ctx.root .. "/" .. src.folder
+    local folder = src.folder:gsub("^/", ""):gsub("/+$", "")
+    local prefix = ctx.root .. "/" .. folder
     for path in pairs(ctx.index) do
-      if path == prefix or path == prefix .. ".md" or vim.startswith(path, prefix .. "/") then
+      if folder == "" or path == prefix or path == prefix .. ".md" or vim.startswith(path, prefix .. "/") then
         out[path] = true
       end
     end
@@ -213,9 +196,24 @@ local function overlay(base, binds)
   return setmetatable(binds, { __index = base })
 end
 
-local function row_env(row, ctx)
-  return { page = row, this = ctx.this or NULL, funcs = functions.registry, now = ctx.now }
+function M.env(row, ctx)
+  return {
+    page = row,
+    errors = ctx.errors,
+    this = ctx.this or NULL,
+    funcs = functions.registry,
+    now = ctx.now,
+    settings = ctx.settings,
+    normalize_link = function(link)
+      return value.normalize_link(link, ctx, ctx.this_path)
+    end,
+    resolve_page = function(target)
+      local path = ctx.resolve(target, ctx.root, ctx.this_path)
+      return path and page_mod.get(path, ctx)
+    end,
+  }
 end
+local row_env = M.env
 
 local function default_alias(src_text)
   return (src_text or "value"):match("([%w_%-]+)%s*$") or "value"
@@ -258,6 +256,7 @@ local function run_commands(rows, cmds, ctx)
         return d.row
       end, decorated)
     elseif cmd.cmd == "group" then
+      ctx.group_name = cmd.alias or cmd.src or ctx.settings.tableGroupColumnName
       local buckets, order = {}, {}
       for _, row in ipairs(rows) do
         local key = eval.expr(cmd.expr, row_env(row, ctx))
@@ -281,15 +280,16 @@ local function run_commands(rows, cmds, ctx)
         table.insert(bucket.members, row)
       end
       local grouped = {}
+      table.sort(order, function(a, b)
+        return value.cmp(a.key, b.key) < 0
+      end)
       for _, bucket in ipairs(order) do
         local g = {
           key = bucket.key,
           rows = value.array(bucket.members),
           file = { link = NULL, path = "", name = value.to_display(bucket.key) },
         }
-        if cmd.alias then
-          g[cmd.alias] = bucket.key
-        end
+        g[cmd.alias or cmd.src] = bucket.key
         grouped[#grouped + 1] = g
       end
       rows = grouped
@@ -309,7 +309,7 @@ local function run_commands(rows, cmds, ctx)
       end
       rows = out
     elseif cmd.cmd == "limit" then
-      local n = eval.expr(cmd.expr, { funcs = functions.registry, now = ctx.now })
+      local n = eval.expr(cmd.expr, row_env(nil, ctx))
       if type(n) == "number" then
         rows = vim.list_slice(rows, 1, math.max(0, math.floor(n)))
       end
@@ -324,7 +324,7 @@ local function project(header, rows, ctx)
   if header.kind == "table" then
     local columns = {}
     if not header.without_id then
-      columns[#columns + 1] = "File"
+      columns[#columns + 1] = ctx.group_name or ctx.settings.tableIdColumnName
     end
     for _, f in ipairs(header.fields) do
       columns[#columns + 1] = f.alias or f.src
@@ -354,47 +354,37 @@ local function project(header, rows, ctx)
     end
     return { kind = "table", with_id = not header.without_id, columns = columns, rows = out_rows }
   elseif header.kind == "list" then
-    -- grouped rows (from GROUP BY) become groups; otherwise one flat group
-    local groups = {}
-    local grouped = #rows > 0 and rows[1].rows ~= nil and value.typeof(rows[1].rows) == "array"
-    if grouped then
-      for _, g in ipairs(rows) do
-        local items = {}
-        for _, member in ipairs(g.rows) do
-          local text
-          if header.expr then
-            text = eval.expr(header.expr, row_env(member, ctx))
-          end
-          items[#items + 1] = {
-            link = not header.without_id and (member.file and member.file.link or NULL) or nil,
-            text = text,
-            path = member._path or "",
-          }
-        end
-        groups[#groups + 1] = { key = g.key, items = items }
+    local items = {}
+    for _, row in ipairs(rows) do
+      local text
+      if header.expr then
+        text = eval.expr(header.expr, row_env(row, ctx))
       end
-    else
-      local items = {}
-      for _, row in ipairs(rows) do
-        local text
-        if header.expr then
-          text = eval.expr(header.expr, row_env(row, ctx))
-        end
-        items[#items + 1] = {
-          link = not header.without_id and (row.file and row.file.link or NULL) or nil,
-          text = text,
-          path = row._path or "",
-        }
+      local id = row.file and row.file.link or NULL
+      if row.key ~= nil then
+        id = row.key
       end
-      groups[1] = { key = nil, items = items }
+      local link
+      if not header.without_id or not header.expr then
+        link = id
+      end
+      items[#items + 1] = {
+        link = link,
+        text = text,
+        path = row._path or "",
+      }
     end
-    return { kind = "list", groups = groups }
+    return { kind = "list", groups = { { items = items } } }
   elseif header.kind == "calendar" then
     -- bucket dated rows by (year, month); months + dated both newest-first
-    local months, by_ym, dated = {}, {}, {}
+    -- undated: rows whose value is not a date; Dataview's calendar fails to
+    -- render when any row has one, so the count is surfaced
+    local months, by_ym, dated, undated = {}, {}, {}, 0
     for _, row in ipairs(rows) do
       local d = header.expr and eval.expr(header.expr, row_env(row, ctx)) or (row.file and row.file.day)
-      if value.typeof(d) == "date" then
+      if value.typeof(d) ~= "date" then
+        undated = undated + 1
+      else
         local ym = d.year * 100 + d.month
         local m = by_ym[ym]
         if not m then
@@ -416,35 +406,23 @@ local function project(header, rows, ctx)
     -- the view opens on the current month, so the renderer needs "today"
     local t = ctx.now or os.date("*t")
     local today = { year = t.year, month = t.month, day = t.day }
-    return { kind = "calendar", months = months, dated = dated, today = today }
+    return { kind = "calendar", months = months, dated = dated, undated = undated, today = today }
   elseif header.kind == "task" then
-    local groups, by_file, order = {}, {}, {}
-    local grouped = #rows > 0 and rows[1].rows ~= nil and value.typeof(rows[1].rows) == "array"
-    if grouped then
-      for _, g in ipairs(rows) do
-        local items = {}
-        for _, member in ipairs(g.rows) do
-          if member._task then
-            items[#items + 1] = member._task
-          end
-        end
-        groups[#groups + 1] = { key = g.key, items = items }
-      end
-    else
-      for _, row in ipairs(rows) do
-        if row._task then
-          local fpath = row._path or ""
-          local g = by_file[fpath]
-          if not g then
-            g = { key = row.file and row.file.link or NULL, items = {} }
-            by_file[fpath] = g
-            order[#order + 1] = g
-          end
-          table.insert(g.items, row._task)
+    local function task_groups(members)
+      local groups, items = {}, {}
+      for _, row in ipairs(members) do
+        if row.rows then
+          groups[#groups + 1] = { key = row.key, groups = task_groups(row.rows), items = {} }
+        elseif row._task then
+          items[#items + 1] = row._task
         end
       end
-      groups = order
+      if #items > 0 then
+        groups[#groups + 1] = { items = items }
+      end
+      return groups
     end
+    local groups = task_groups(rows)
     return { kind = "task", groups = groups }
   end
   return { kind = "unsupported", what = header.kind }
@@ -460,6 +438,9 @@ function M.run(src, ctx)
   if not ast then
     return { ok = false, phase = "parse", msg = perr.msg, pos = perr.pos }
   end
+  ctx.errors = {}
+  ctx.settings = ctx.settings or require("obsidian-query.dataview.settings").get(ctx.root)
+  ctx.resolve = ctx.resolve or require("obsidian-query.index").make_resolver(ctx.index)
   local ok, result = pcall(function()
     -- FROM: first from command; absent -> whole vault
     local from_src
@@ -486,11 +467,11 @@ function M.run(src, ctx)
       table.sort(paths)
       rows = {}
       for _, path in ipairs(paths) do
-        rows[#rows + 1] = page_mod.build(path, ctx.index[path], ctx)
+        rows[#rows + 1] = page_mod.get(path, ctx)
       end
     end
-    if ctx.this_path and ctx.index[ctx.this_path] then
-      ctx.this = page_mod.build(ctx.this_path, ctx.index[ctx.this_path], ctx)
+    if not ctx.this and ctx.this_path and ctx.index[ctx.this_path] then
+      ctx.this = page_mod.get(ctx.this_path, ctx)
     end
     -- TASK: explode to task overlay rows BEFORE commands (dataview semantics)
     if ast.header.kind == "task" then
@@ -512,6 +493,10 @@ function M.run(src, ctx)
     end, ast.commands)
     rows = run_commands(rows, cmds, ctx)
     local data = project(ast.header, rows, ctx)
+    if #ctx.errors > 0 then
+      error(ctx.errors[1], 0)
+    end
+    data.settings = ctx.settings
     data.from = from_src -- source node, for the picker title
     return data
   end)

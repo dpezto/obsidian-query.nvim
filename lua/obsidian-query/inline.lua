@@ -1,7 +1,7 @@
 -- Inline `= expr` queries: markdown_inline custom handler evaluating dataview
 -- expressions in code spans against the note's own page. Result overlays the
 -- span as inline virt_text; raw span reappears on the cursor row (anti-conceal)
--- and errors/null render nothing — prose never grows error banners.
+-- Errors render nothing; nulls use Dataview's configured placeholder.
 local M = {}
 
 local idx ---@type table? cached obsidian-query.index result
@@ -12,8 +12,7 @@ local stale_gen = 0 -- bumped per invalidation: a request begun before one stays
 local request ---@type table? token of the in-flight index request
 local bufs = {} ---@type table<integer, true> buffers showing inline values
 local stale_au ---@type integer?
-local expr_cache = {} ---@type table<string, table|false> parsed ASTs
-local page_cache = {} ---@type table<string, {gen: integer, page: table}>
+local expr_cache = setmetatable({}, { __mode = "v" }) ---@type table<string, table> parsed ASTs
 
 local function mark_stale_on_change()
   if stale_au then
@@ -23,6 +22,7 @@ local function mark_stale_on_change()
     group = vim.api.nvim_create_augroup("obsidian_inline_stale", { clear = true }),
     pattern = "*.md",
     callback = function()
+      require("obsidian-query.index").invalidate()
       idx_stale, stale_gen = true, stale_gen + 1
     end,
   })
@@ -64,7 +64,6 @@ end
 function M.invalidate()
   idx, idx_root, idx_stale = nil, nil, false
   idx_pending, request = false, nil
-  page_cache = {}
 end
 
 local function ensure_index(root)
@@ -87,31 +86,11 @@ local function ensure_index(root)
         -- a change that landed mid-request leaves the index stale: refetch
         idx, idx_root, idx_stale = result, root, stale_gen ~= start_gen
         idx_gen = idx_gen + 1
-        page_cache = {}
         rerender()
       end
     end)
   end
   return idx -- possibly stale (still render) or nil (pending)
-end
-
-local function get_page(path, root)
-  local hit = page_cache[path]
-  if hit and hit.gen == idx_gen then
-    return hit.page
-  end
-  local row = idx.rows[path]
-  if not row then
-    return nil
-  end
-  local page = require("obsidian-query.dataview.page").build(path, row, {
-    root = root,
-    sup = idx.sup,
-    inlinks = idx.inlinks,
-    starred = idx.starred,
-  })
-  page_cache[path] = { gen = idx_gen, page = page }
-  return page
 end
 
 local ts_query ---@type vim.treesitter.Query?
@@ -131,6 +110,10 @@ function M.parse(ctx)
   if not root then
     return {}
   end
+  local settings = require("obsidian-query.dataview.settings").get(root)
+  if not settings.enableInlineDataview then
+    return {}
+  end
   local path = vim.api.nvim_buf_get_name(ctx.buf)
   if not vim.startswith(path, root .. "/") then
     return {}
@@ -142,7 +125,8 @@ function M.parse(ctx)
     for _, nodes in pairs(match) do
       local node = nodes[#nodes] -- TSNode[] per capture (nvim 0.11+)
       local text = vim.treesitter.get_node_text(node, ctx.buf)
-      local expr = text:match("^`=%s+(.-)`$")
+      local prefix = "`" .. settings.inlineQueryPrefix
+      local expr = vim.startswith(text, prefix) and text:sub(-1) == "`" and vim.trim(text:sub(#prefix + 1, -2)) or nil
       if expr then
         spans[#spans + 1] = { node = node, expr = expr }
       end
@@ -157,23 +141,37 @@ function M.parse(ctx)
   if not index then
     return {} -- index loading; rerender() will bring the results in
   end
-  local page = get_page(path, root)
+  local page = require("obsidian-query.index").this_page(index, ctx.buf, root)
   if not page then
     return {}
   end
   shown_gen = idx_gen
   local eval = require("obsidian-query.dataview.eval")
   local value = require("obsidian-query.dataview.value")
-  local functions = require("obsidian-query.dataview.functions")
   for _, span in ipairs(spans) do
     local ast = expr_cache[span.expr]
     if ast == nil then
       ast = require("obsidian-query.dataview.parser").parse_expr(span.expr) or false
-      expr_cache[span.expr] = ast
+      if ast then
+        expr_cache[span.expr] = ast
+      end
     end
     if ast then
-      local result = eval.expr(ast, { page = page, this = page, funcs = functions.registry })
-      local display = value.to_display(result)
+      local qctx = {
+        settings = settings,
+        errors = {},
+        index = index.rows,
+        pages = index.pages,
+        root = root,
+        sup = index.sup,
+        inlinks = index.inlinks,
+        starred = index.starred,
+        this_path = path,
+        this = page,
+        resolve = index.resolve or require("obsidian-query.index").make_resolver(index.rows),
+      }
+      local result = eval.expr(ast, require("obsidian-query.dataview.query").env(page, qctx))
+      local display = #qctx.errors == 0 and value.to_display(result, settings) or ""
       if display ~= "" then
         local srow, scol, erow, ecol = span.node:range()
         marks[#marks + 1] = {

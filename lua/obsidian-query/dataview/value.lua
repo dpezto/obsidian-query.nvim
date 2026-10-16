@@ -12,6 +12,7 @@ M.NULL = setmetatable({}, {
 ---------------------------------------------------------------- constructors
 
 local date_mt, dur_mt, link_mt, array_mt, task_mt
+local widget_mt = { dv = "widget" }
 
 -- lazy date components via os.date; ts canonical (fast ordering)
 date_mt = {
@@ -29,6 +30,7 @@ date_mt = {
       hour = t.hour,
       minute = t.min,
       second = t.sec,
+      millisecond = math.floor((self.ts - math.floor(self.ts)) * 1000 + 0.5),
       weekday = (t.wday + 5) % 7 + 1, -- 1 = Monday
       dayofyear = t.yday,
       quarter = math.ceil(t.month / 3),
@@ -113,7 +115,13 @@ end
 
 ---@param path string vault-relative or bare note name
 function M.link(path, opts)
-  opts = opts or {}
+  opts = vim.tbl_extend("force", {}, opts or {})
+  local base, sub = path:match("^(.-)#(.*)$")
+  if base then
+    path = base
+    opts.subpath = opts.subpath or sub:gsub("^%^", "")
+    opts.kind = sub:sub(1, 1) == "^" and "block" or "header"
+  end
   return setmetatable({
     path = path,
     subpath = opts.subpath,
@@ -121,6 +129,18 @@ function M.link(path, opts)
     display = opts.display,
     embed = opts.embed or false,
   }, link_mt)
+end
+
+function M.normalize_link(link, ctx, source, relative)
+  local path = ctx and ctx.resolve and ctx.resolve(link.path, ctx.root, source, relative)
+  if not path then
+    return link
+  end
+  return M.link(vim.fs.relpath(ctx.root, path) or path, link)
+end
+
+function M.external_link(url, display)
+  return setmetatable({ url = url, display = display or url }, widget_mt)
 end
 
 function M.array(list)
@@ -152,6 +172,8 @@ function M.typeof(v)
       return "link"
     elseif dv == "array" then
       return "array"
+    elseif dv == "widget" then
+      return "widget"
     elseif dv == "task" then
       return "object"
     end
@@ -163,11 +185,8 @@ end
 ---------------------------------------------------------------- parsing
 
 local DATE_PAT = "^(%d%d%d%d)%-(%d%d)%-(%d%d)"
--- ISO "T" or the space Obsidian writes in frontmatter (`created: … 10:44`)
-local TIME_PAT = "^[T ](%d%d):(%d%d):?(%d?%d?)"
-
----ISO 8601 (naive local): yyyy-MM-dd[THH:mm[:ss]]
-function M.parse_date(s)
+---ISO dates and timestamps; file names may carry trailing prose.
+function M.parse_date(s, exact)
   if type(s) ~= "string" then
     return M.NULL
   end
@@ -175,18 +194,59 @@ function M.parse_date(s)
   if not y then
     return M.NULL
   end
-  local rest = s:sub(11)
-  local h, mi, sec = rest:match(TIME_PAT)
-  local ts = os.time({
-    year = tonumber(y),
-    month = tonumber(mo),
-    day = tonumber(d),
-    hour = tonumber(h) or 0,
-    min = tonumber(mi) or 0,
-    sec = tonumber(sec) or 0,
-  })
-  if not ts then
+  y, mo, d = tonumber(y), tonumber(mo), tonumber(d)
+  local ok, noon = pcall(os.time, { year = y, month = mo, day = d, hour = 12, min = 0, sec = 0 })
+  if not ok or not noon then
     return M.NULL
+  end
+  local checked = os.date("*t", noon)
+  if checked.year ~= y or checked.month ~= mo or checked.day ~= d then
+    return M.NULL
+  end
+  local rest = s:sub(11)
+  -- Dataview's date grammar only takes `T` before the time; a space there
+  -- leaves the whole value text (file names may still use one)
+  local h, mi, tail = rest:match(exact and "^T(%d%d):(%d%d)(.*)$" or "^[T ](%d%d):(%d%d)(.*)$")
+  local sec, fraction, zone = 0, 0, nil
+  if h then
+    h, mi = tonumber(h), tonumber(mi)
+    if tail:sub(1, 1) == ":" then
+      local seconds, remaining = tail:match("^:(%d%d)(.*)$")
+      if not seconds then
+        return M.NULL
+      end
+      sec, tail = tonumber(seconds), remaining
+    end
+    if tail:sub(1, 1) == "." then
+      local digits, remaining = tail:match("^%.(%d+)(.*)$")
+      if not digits then
+        return M.NULL
+      end
+      fraction, tail = tonumber("0." .. digits), remaining
+    end
+    if tail == "Z" or tail == "z" then
+      zone, tail = 0, ""
+    elseif tail:match("^[+-]") then
+      local sign, zh, zm = tail:match("^([+-])(%d%d):?(%d%d)$")
+      if not sign or tonumber(zh) > 23 or tonumber(zm) > 59 then
+        return M.NULL
+      end
+      zone, tail = (tonumber(zh) * 3600 + tonumber(zm) * 60) * (sign == "+" and 1 or -1), ""
+    end
+    if h > 23 or mi > 59 or sec > 59 or (exact and tail ~= "") then
+      return M.NULL
+    end
+  elseif exact and rest ~= "" then
+    return M.NULL
+  end
+  local ts
+  if zone ~= nil then
+    local offset = os.date("%z", noon)
+    local sign, oh, om = offset:match("^([+-])(%d%d)(%d%d)$")
+    local local_offset = (tonumber(oh) * 3600 + tonumber(om) * 60) * (sign == "+" and 1 or -1)
+    ts = noon + local_offset - 12 * 3600 + h * 3600 + mi * 60 + sec - zone + fraction
+  else
+    ts = os.time({ year = y, month = mo, day = d, hour = h or 0, min = mi or 0, sec = sec }) + fraction
   end
   return M.date(ts, h and "datetime" or "date")
 end
@@ -221,6 +281,9 @@ local DUR_UNITS = {
   s = "seconds",
   sec = "seconds",
   secs = "seconds",
+  ms = "milliseconds",
+  millisecond = "milliseconds",
+  milliseconds = "milliseconds",
   second = "seconds",
   seconds = "seconds",
 }
@@ -230,41 +293,45 @@ function M.parse_dur(s)
   if type(s) ~= "string" then
     return M.NULL
   end
-  local ms, months, found = 0, 0, false
-  for num, unit in s:gmatch("(%d+%.?%d*)%s*(%a+)") do
+  local ms, months, found, valid = 0, 0, false, true
+  local rest = s:gsub("([+-]?%d*%.?%d+)%s*(%a+)", function(num, unit)
     local u = DUR_UNITS[unit:lower()]
+    if not u then
+      valid = false
+      return ""
+    end
     if u == "months" then
       months = months + tonumber(num)
-      found = true
     elseif u == "years" then
       months = months + tonumber(num) * 12
-      found = true
-    elseif u then
+    else
       ms = ms + tonumber(num) * DUR_MS[u]
-      found = true
     end
-  end
-  return found and M.dur(ms, months) or M.NULL
+    found = true
+    return ""
+  end)
+  return found and valid and rest:gsub("[,%s]", "") == "" and M.dur(ms, months) or M.NULL
 end
 
 ---------------------------------------------------------------- comparison
 
 local function norm_link_path(l)
-  return (l.path:lower():gsub("%.md$", "")) .. "\0" .. (l.subpath or "")
+  return l.path .. "\0" .. l.kind .. "\0" .. (l.subpath or "")
 end
 M.link_key = norm_link_path -- eq identity of a link (unique() hashes on it)
 
 local TYPE_RANK = {
   null = 0,
-  boolean = 1,
-  number = 2,
-  string = 3,
-  date = 4,
-  duration = 5,
+  array = 1,
+  boolean = 2,
+  date = 3,
+  duration = 4,
+  ["function"] = 5,
   link = 6,
-  array = 7,
+  number = 7,
   object = 8,
-  ["function"] = 9,
+  string = 9,
+  widget = 10,
 }
 
 function M.eq(a, b)
@@ -357,16 +424,13 @@ function M.cmp(a, b)
   return 0
 end
 
----WHERE comparison; `<' family with NULL -> NULL (row filtered as falsy)
+---WHERE comparisons use the same total order as SORT.
 ---@return boolean|table
 function M.compare_op(op, a, b)
   if op == "=" then
     return M.eq(a, b)
   elseif op == "!=" then
     return not M.eq(a, b)
-  end
-  if M.typeof(a) == "null" or M.typeof(b) == "null" then
-    return M.NULL
   end
   local c = M.cmp(a, b)
   if op == "<" then
@@ -463,10 +527,15 @@ function M.truthy(v)
   return true
 end
 
-function M.to_display(v)
+function M.to_display(v, settings, depth)
+  settings = settings or require("obsidian-query.dataview.settings").defaults
+  depth = depth or 0
+  if depth > settings.maxRecursiveRenderDepth then
+    return "..."
+  end
   local t = M.typeof(v)
   if t == "null" then
-    return ""
+    return (settings.renderNullAs:gsub("\\(%p)", "%1"))
   elseif t == "string" then
     return v
   elseif t == "number" then
@@ -474,11 +543,13 @@ function M.to_display(v)
   elseif t == "boolean" then
     return tostring(v)
   elseif t == "date" then
-    return os.date(v.prec == "date" and "%Y-%m-%d" or "%Y-%m-%d %H:%M", math.floor(v.ts)) --[[@as string]]
+    local fmt = v.hour == 0 and v.minute == 0 and v.second == 0 and settings.defaultDateFormat
+      or settings.defaultDateTimeFormat
+    return require("obsidian-query.dataview.functions").registry.dateformat({}, { v, fmt })
   elseif t == "duration" then
     -- negative durations (date - later_date): display the magnitude, signed
     if dur_approx_ms(v) < 0 then
-      return "-" .. M.to_display(M.dur(-v.ms, -(rawget(v, "months") or 0)))
+      return "-" .. M.to_display(M.dur(-v.ms, -(rawget(v, "months") or 0)), settings, depth)
     end
     local parts = {}
     local months = rawget(v, "months") or 0
@@ -499,12 +570,15 @@ function M.to_display(v)
       end
     end
     return #parts > 0 and table.concat(parts, ", ") or "0 seconds"
+  elseif t == "widget" then
+    return v.display or v.url
   elseif t == "link" then
-    return v.display or vim.fn.fnamemodify(v.path, ":t:r")
+    local name = vim.fn.fnamemodify(v.path, ":t"):gsub("%.md$", "")
+    return v.display or (name .. (v.subpath and (" > " .. v.subpath) or ""))
   elseif t == "array" then
     local parts = {}
     for _, x in ipairs(v) do
-      parts[#parts + 1] = M.to_display(x)
+      parts[#parts + 1] = M.to_display(x, settings, depth + 1)
     end
     return table.concat(parts, ", ")
   elseif t == "object" then

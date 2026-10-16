@@ -92,11 +92,11 @@ local function run(q)
 end
 
 local ok, locs = run("signal")
-check(ok, "smart-case insensitive hit")
+check(ok, "default case-insensitive hit")
 check(#locs == 2, "two matched lines, deduped per line; got " .. #locs)
 
-ok = run("Signal")
-check(ok, "uppercase term still matches its exact-case line")
+ok, locs = run("SIGNAL")
+check(ok and #locs == 2, "uppercase terms remain case-insensitive by default")
 ok, locs = run("match-case:(Signal)")
 check(ok and #locs == 1, "match-case restricts")
 ok = run("match-case:(SIGNAL)")
@@ -128,7 +128,7 @@ check(run("file:.md"), "file: matches the extension")
 check(not run("file:2025"), "file: miss")
 check(run("path:Journal"), "path:")
 check(run("content:signal"), "content:")
-check(not run("content:2026-07-28") or true, "content excludes filename? (fm has id, ok)")
+check(run("content:2026-07-28"), "content includes frontmatter text")
 check(run("tag:#día"), "fm tag")
 check(run("tag:día"), "tag without #")
 check(run("tag:#ci"), "nested tag prefix")
@@ -141,7 +141,7 @@ check(run("line:(signal output)"), "line: same line")
 check(not run("line:(signal backup)"), "line: different lines")
 check(run("block:(signal backup)"), "block: same block")
 check(run("section:(align calibrate)"), "section: same section")
-check(not run("section:(plan align)") or true, "section boundary (heading text counts in own section)")
+check(not run("section:(plan align)"), "section boundary (heading text counts in own section)")
 check(run("task:(align)"), "task:")
 check(run("task-todo:(align)"), "task-todo:")
 check(not run("task-done:(align)"), "task-done: miss")
@@ -203,5 +203,193 @@ check(runa("path:Coding"), "attachment matches path:")
 check(runa("file:img.png"), "attachment matches file: with extension")
 check(not runa("signal"), "attachment has no content to match")
 check(not runa("line:(signal)"), "content operator misses attachment")
+
+group = "embedded rendering"
+local engine = require("obsidian-query.search")
+local order = { "/v/A/Note10.md", "/v/Z/Note2.md", "/v/Z/alpha.md" }
+table.sort(order, engine.less)
+check(
+  order[1] == "/v/Z/alpha.md" and order[2] == "/v/Z/Note2.md",
+  "search sorts basenames alphabetically with numeric ordering"
+)
+local long = string.rep("a", 150) .. "needle" .. string.rep("b", 150)
+local matched, locations = eval.run(assert(parser.parse("content:needle")), eval.note("/v/n.md", "n.md", long))
+check(matched and locations[1].end_col == 157, "match retains end position")
+local context = engine.context(locations[1])
+check(
+  context == "…" .. string.rep("a", 100) .. "needle" .. string.rep("b", 100) .. "…",
+  "context is bounded around match, not file start"
+)
+check(
+  engine.context({ text = "left needle right", col = 6, end_col = 12 }) == "left needle right",
+  "short matches show whole line"
+)
+
+group = "search cache"
+local root = vim.fn.tempname()
+vim.fn.mkdir(root, "p")
+local a, b = root .. "/a.md", root .. "/b.md"
+vim.fn.writefile({ "needle" }, a)
+vim.fn.writefile({ "other" }, b)
+vim.fn.writefile({ "b.md" }, root .. "/.ignore")
+local saved_open, saved_eval = io.open, eval.run
+local reads, evaluations = 0, 0
+eval.run = function(...)
+  evaluations = evaluations + 1
+  return saved_eval(...)
+end
+io.open = function(path, mode)
+  if path == a or path == b then
+    reads = reads + 1
+  end
+  return saved_open(path, mode)
+end
+local function search(text)
+  local result
+  engine.run(engine.parse(text), { root = root }, function(r)
+    result = r
+  end)
+  check(
+    vim.wait(3000, function()
+      return result ~= nil
+    end),
+    "async search completes"
+  )
+  return result
+end
+local executable = vim.fn.executable
+vim.fn.executable = function()
+  return 0
+end
+check(search("needle").error == "ripgrep (rg) not found", "missing ripgrep reports an error")
+vim.fn.executable = executable
+local found = search("content:needle")
+check(#found.files == 1 and reads == 1, "ripgrep prefilter skips nonmatching content files")
+found = search("content:needle")
+check(#found.files == 1 and reads == 1 and evaluations == 1, "unchanged files reuse content and evaluation")
+found = search("needle OR other")
+check(#found.files == 2 and reads == 2, "OR query includes ignored notes without unsafe prefilter")
+vim.fn.writefile({ "needle changed" }, b)
+found = search("content:needle")
+check(#found.files == 2 and reads == 3, "prefilter includes changed notes listed in ignore files")
+found = search("-content:needle")
+check(#found.files == 0, "negated content does not use unsafe positive prefilter")
+io.open, eval.run = saved_open, saved_eval
+vim.fn.delete(root, "rf")
+
+group = "embedded origin exclusion"
+local origin_root = vim.fn.tempname()
+vim.fn.mkdir(origin_root, "p")
+local origin_path = origin_root .. "/origin.md"
+vim.fn.writefile({ "```query", "content:needle", "```" }, origin_path)
+local origin_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_name(origin_buf, origin_path)
+local function origin_search(buf)
+  local result
+  engine.run(engine.parse("content:needle"), { root = origin_root, buf = buf }, function(r)
+    result = r
+  end)
+  check(
+    vim.wait(3000, function()
+      return result ~= nil
+    end),
+    "origin search completes"
+  )
+  return result
+end
+local origin_result = origin_search(origin_buf)
+check(#origin_result.files == 0, "embedded search excludes query fences in its own note")
+check(#origin_search(nil).files == 1, "other notes can match query fence content")
+check(
+  engine.key(engine.parse("needle"), { root = origin_root, buf = origin_buf })
+    ~= engine.key(engine.parse("needle"), { root = origin_root }),
+  "origin-sensitive searches have distinct cache keys"
+)
+vim.api.nvim_buf_delete(origin_buf, { force = true })
+vim.fn.delete(origin_root, "rf")
+
+group = "match spans"
+local far = "needle" .. string.rep("x", 250) .. "needle"
+local yes, multiple = eval.run(assert(parser.parse("content:needle")), eval.note("/v/f.md", "f.md", far))
+check(yes and #multiple == 1 and #multiple[1].ranges == 2, "all occurrences retained within a matched line")
+check(#engine.contexts(multiple[1]) == 2, "distant matches get separate context snippets")
+yes, multiple = eval.run(assert(parser.parse("content:/needle/")), eval.note("/v/f.md", "f.md", far))
+check(yes and #multiple[1].ranges == 2, "regex search retains all occurrences")
+yes, multiple = eval.run(assert(parser.parse("task:needle")), eval.note("/v/f.md", "f.md", "- [ ] needle"))
+check(yes and multiple[1].col == 7 and multiple[1].text == "- [ ] needle", "task match columns refer to original line")
+local boolean_prop = eval.note("/v/f.md", "f.md", "")
+boolean_prop._fm = { enabled = false }
+check(eval.run(assert(parser.parse("[enabled]")), boolean_prop), "false property value still exists")
+local tag_lines = engine.lines({
+  files = { { path = "/v/f.md", matches = { { text = "#tag", col = 1 } } } },
+  total = 1,
+  has_content = false,
+})
+check(#tag_lines == 3, "structural tag matches show context")
+
+group = "AST lifetime"
+do
+  local first = engine.parse("unique-lifetime-term")
+  check(engine.parse("unique-lifetime-term").ast == first.ast, "active query parses reuse AST identity")
+  local weak = setmetatable({ first.ast }, { __mode = "v" })
+  first = nil
+  collectgarbage("collect")
+  check(weak[1] == nil, "unused query ASTs are collectable")
+end
+
+group = "embedded default case"
+check(eval.run(assert(parser.parse("CAFÉ")), NOTE), "default matching folds Unicode case")
+check(eval.run(assert(parser.parse("/SIGNAL/")), NOTE), "regex is case-insensitive by default")
+local filename_note = eval.note("/v/Needle.md", "Needle.md", "")
+check(eval.run(assert(parser.parse("match-case:(Needle)")), filename_note), "case override retains filename matching")
+check(not eval.run(assert(parser.parse("content:Needle")), filename_note), "content excludes filename-only matches")
+
+group = "result titles"
+do
+  local note = eval.note("/v/Folder/Needle.md", "Folder/Needle.md", "")
+  local yes, locs, label = eval.run(assert(parser.parse("path:Folder")), note)
+  check(yes and #locs == 0 and label == "Folder/Needle.md", "path matches show relative path without content snippets")
+  yes, locs, label = eval.run(assert(parser.parse("file:.md")), note)
+  check(yes and #locs == 0 and label == "Needle.md", "extension filename matches retain extension in result title")
+  yes, locs = eval.run(assert(parser.parse("/Needle/")), note)
+  check(yes and #locs == 0, "bare regex can match filename")
+  yes, locs, label = eval.run(assert(parser.parse("(path:Folder missing) OR Needle")), note)
+  check(yes and label == nil, "failed OR branch cannot change result title")
+end
+
+group = "bare literal prefilter"
+do
+  local root = vim.fn.tempname()
+  vim.fn.mkdir(root, "p")
+  vim.fn.writefile({ "nothing" }, root .. "/Needle.md")
+  vim.fn.writefile({ "needle" }, root .. "/content.md")
+  vim.fn.writefile({ "unrelated" }, root .. "/skip.md")
+  local saved_open, reads = io.open, 0
+  io.open = function(path, mode)
+    if vim.startswith(path, root .. "/") then
+      reads = reads + 1
+    end
+    return saved_open(path, mode)
+  end
+  local result
+  engine.run(engine.parse("needle"), { root = root }, function(r)
+    result = r
+  end)
+  check(
+    vim.wait(3000, function()
+      return result ~= nil
+    end),
+    "bare literal search completes"
+  )
+  check(#result.files == 2 and reads == 2, "bare literal prefilter unions content and filename candidates")
+  io.open = saved_open
+  vim.fn.delete(root, "rf")
+end
+
+do
+  group = "incomplete negation"
+  local parsed, err = parser.parse("-")
+  check(parsed == nil and err == "expected a term after negation", "trailing negation reports a syntax error")
+end
 
 io.write(("all %d checks passed\n"):format(n_ok))

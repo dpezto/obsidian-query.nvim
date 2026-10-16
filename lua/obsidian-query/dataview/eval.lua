@@ -14,20 +14,33 @@ local function norm(v)
 end
 
 ---index on arrays with a string key = element-wise swizzle (rows.file.link)
-function M.index(obj, key)
+function M.index(obj, key, env)
   local t = value.typeof(obj)
   if t == "null" then
     return NULL
   end
+  if t == "widget" then
+    return NULL
+  end
+  if t == "link" then
+    local page = env and env.resolve_page and env.resolve_page(obj.path)
+    return type(key) == "string" and norm(page and page[key]) or NULL
+  end
   if t == "array" and type(key) == "string" then
     local out = {}
     for _, el in ipairs(obj) do
-      out[#out + 1] = M.index(el, key)
+      out[#out + 1] = M.index(el, key, env)
     end
     return value.array(out)
   end
   if t == "array" and type(key) == "number" then
-    return norm(obj[key]) -- 1-based (Lua-consistent; documented deviation)
+    return key >= 0 and key % 1 == 0 and norm(obj[key + 1]) or NULL
+  end
+  if t == "string" and type(key) == "number" then
+    if key < 0 or key % 1 ~= 0 or key >= vim.fn.strchars(obj) then
+      return NULL
+    end
+    return vim.fn.strcharpart(obj, key, 1)
   end
   if type(obj) == "table" then
     return norm(obj[key])
@@ -108,7 +121,8 @@ eval_node = function(ast, env)
     return resolve_ident(ast.name, env)
   elseif k == "link" then
     local path, display = ast.raw:match("^([^|]*)|?(.*)$")
-    return value.link(vim.trim(path), { display = display ~= "" and display or nil })
+    local link = value.link(vim.trim(path), { display = display ~= "" and display or nil })
+    return env.normalize_link and env.normalize_link(link) or link
   elseif k == "list" then
     local out = {}
     for _, item in ipairs(ast.items) do
@@ -121,11 +135,18 @@ eval_node = function(ast, env)
     if value.typeof(key) == "null" then
       return NULL
     end
-    return M.index(obj, key)
+    return M.index(obj, key, env)
   elseif k == "call" then
-    local fn = eval_node(ast.fn, env)
+    local fn
+    if ast.fn.k == "ident" and env.funcs and env.funcs[ast.fn.name:lower()] then
+      fn = function(args)
+        return env.funcs[ast.fn.name:lower()](env, args)
+      end
+    else
+      fn = eval_node(ast.fn, env)
+    end
     if type(fn) ~= "function" then
-      return NULL
+      error("Unrecognized function: " .. (ast.fn.name or "value"), 0)
     end
     local args = {}
     for i, a in ipairs(ast.args) do
@@ -135,7 +156,7 @@ eval_node = function(ast, env)
     -- NOT `ok and norm(res) or NULL`: a legitimate `false` result must
     -- survive as false, not collapse to NULL
     if not ok then
-      return NULL
+      error(res, 0)
     end
     return norm(res)
   elseif k == "datelit" then
@@ -179,6 +200,9 @@ end
 function M.expr(ast, env)
   local ok, res = pcall(eval_node, ast, env)
   if not ok then
+    if env.errors then
+      env.errors[#env.errors + 1] = tostring(res)
+    end
     return NULL
   end
   return norm(res) -- `false` is a valid result, so no and/or shortcut

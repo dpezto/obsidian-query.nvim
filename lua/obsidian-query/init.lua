@@ -7,6 +7,8 @@ local M = {}
 -- key -> { result?: table, fetching?: table (request token), stale?: boolean, bufs: table<integer, true> }
 -- (declared before setup: its autocmds close over it)
 local cache = {}
+local diagnostic_ns = vim.api.nvim_create_namespace("obsidian-query")
+local diagnostics = {}
 local mark_all_stale ---@type fun() defined below, with the generation it bumps
 
 ---@param opts obsidian-query.Opts?
@@ -130,10 +132,19 @@ function M.buf_root(buf)
   local ok, ws = pcall(function()
     return require("obsidian.api").find_workspace(path)
   end)
-  ws = (ok and ws) or Obsidian.workspace
+  if not ok then
+    ws = Obsidian.workspace
+  end
+  if not ws then
+    return nil
+  end
+  local root = vim.fs.normalize(tostring(ws.root))
+  if not vim.startswith(path, root .. "/") then
+    return nil
+  end
   -- the vault root, not ws.path: a non-strict workspace in a vault subfolder
   -- still queries (and is cached by obsidian.nvim) as the whole vault
-  return ws and vim.fs.normalize(tostring(ws.root)) or nil
+  return root
 end
 
 -- Workspace context for a fence; nil outside an Obsidian workspace
@@ -147,6 +158,7 @@ end
 local generation = 0
 
 function mark_all_stale()
+  require("obsidian-query.index").invalidate()
   generation = generation + 1
   for _, entry in pairs(cache) do
     entry.stale = true
@@ -220,6 +232,8 @@ local function mark_stale_on_change()
     group = group,
     callback = function(ev)
       live[ev.buf] = nil
+      diagnostics[ev.buf] = nil
+      vim.diagnostic.reset(diagnostic_ns, ev.buf)
       release(ev.buf)
     end,
   })
@@ -320,6 +334,8 @@ function M.parse(ctx)
   local marks = {}
   local seen = live[ctx.buf] or {}
   live[ctx.buf] = seen
+  local errors = diagnostics[ctx.buf] or {}
+  diagnostics[ctx.buf] = errors
   for _, match in query:iter_matches(ctx.root, ctx.buf) do
     local lang, body, block
     -- iter_matches yields TSNode[] per capture (nvim 0.11+); the fence query
@@ -345,10 +361,42 @@ function M.parse(ctx)
           entry = { bufs = {} }
           cache[key] = entry
         end
+        entry.spec = spec
         entry.bufs[ctx.buf] = true
         seen[key] = true
+        if engine == engines.dataview then
+          local tick = vim.api.nvim_buf_get_changedtick(ctx.buf)
+          if entry.tick and entry.tick ~= tick then
+            entry.stale = true
+          end
+          entry.tick = tick
+        end
         if not entry.fetching and (not entry.result or entry.stale) then
           refetch(engine, key, spec, qctx)
+        end
+        local result = entry.result
+        if result and (result.ok == false or result.error) then
+          local text = vim.treesitter.get_node_text(body, ctx.buf)
+          local prefix = text:sub(1, math.max(0, (result.pos or 1) - 1))
+          local _, newlines = prefix:gsub("\n", "")
+          local row, col
+          if body.range then
+            row, col = body:range()
+          else
+            row, col = block:range()
+            row = row + 1
+          end
+          row = math.min(row + newlines, vim.api.nvim_buf_line_count(ctx.buf) - 1)
+          col = newlines > 0 and #(prefix:match("[^\n]*$") or "") or (col + #prefix)
+          local line = vim.api.nvim_buf_get_lines(ctx.buf, row, row + 1, false)[1] or ""
+          col = math.min(col, #line)
+          errors[#errors + 1] = {
+            lnum = row,
+            col = col,
+            severity = vim.diagnostic.severity.ERROR,
+            source = "obsidian-query",
+            message = result.msg or result.error or "query failed",
+          }
         end
         local lines = entry.result and engine.lines(entry.result) or render.pending()
         if entry.result then
@@ -372,6 +420,8 @@ function M.parse(ctx)
   if ctx.last ~= false then
     live[ctx.buf] = nil
     release(ctx.buf, seen)
+    vim.diagnostic.set(diagnostic_ns, ctx.buf, errors, { virtual_text = false })
+    diagnostics[ctx.buf] = nil
   end
   return marks
 end

@@ -9,21 +9,32 @@ local M = {}
 local R = {}
 M.registry = R
 
-local function vectorize(f)
-  return function(env, args)
-    if T(args[1]) == "array" then
+local function vectorize(f, positions)
+  positions = positions or { 1 }
+  local call
+  call = function(env, args)
+    local length
+    for _, pos in ipairs(positions) do
+      if T(args[pos]) == "array" then
+        length = math.min(length or math.huge, #args[pos])
+      end
+    end
+    if length then
       local out = {}
-      for i, el in ipairs(args[1]) do
-        local sub = { el }
-        for j = 2, #args do
-          sub[j] = args[j]
+      for i = 1, length do
+        local sub = vim.list_slice(args)
+        for _, pos in ipairs(positions) do
+          if T(args[pos]) == "array" then
+            sub[pos] = args[pos][i]
+          end
         end
-        out[i] = f(env, sub)
+        out[i] = call(env, sub)
       end
       return value.array(out)
     end
     return f(env, args)
   end
+  return call
 end
 
 local function str_fn(f)
@@ -32,7 +43,7 @@ local function str_fn(f)
       return NULL
     end
     return f(unpack(args))
-  end)
+  end, { 1, 2, 3 })
 end
 
 ---------------------------------------------------------------- core
@@ -43,11 +54,11 @@ end
 
 R.default = vectorize(function(_, args)
   return args[T(args[1]) == "null" and 2 or 1]
-end)
+end, { 1, 2 })
 
-R.choice = function(_, args)
+R.choice = vectorize(function(_, args)
   return args[value.truthy(args[1]) and 2 or 3]
-end
+end)
 
 R.length = function(_, args)
   local t = T(args[1])
@@ -61,55 +72,166 @@ R.length = function(_, args)
   return 0
 end
 
-R.contains = function(_, args)
+R.contains = vectorize(function(env, args)
   local hay, needle = args[1], args[2]
-  local t = T(hay)
-  if t == "string" then
-    return T(needle) == "string" and hay:lower():find(needle:lower(), 1, true) ~= nil
-  elseif t == "array" then
+  if T(hay) == "array" then
     for _, el in ipairs(hay) do
-      if
-        value.eq(el, needle)
-        or (T(el) == "string" and T(needle) == "string" and el:lower():find(needle:lower(), 1, true))
-      then
+      if R.contains(env, { el, needle }) then
         return true
       end
     end
     return false
-  elseif t == "object" then
-    return T(needle) == "string" and hay[needle] ~= nil
-  elseif t == "link" then
-    return T(needle) == "string" and value.to_display(hay):lower():find(needle:lower(), 1, true) ~= nil
+  elseif T(hay) == "string" and T(needle) == "string" then
+    return hay:find(needle, 1, true) ~= nil
+  elseif T(hay) == "object" and T(needle) == "string" then
+    return hay[needle] ~= nil
   end
-  return false
-end
+  return value.eq(hay, needle)
+end, { 2 })
 
-R.econtains = function(_, args)
+R.econtains = vectorize(function(_, args)
   local hay, needle = args[1], args[2]
-  local t = T(hay)
-  if t == "string" then
-    return T(needle) == "string" and hay:find(needle, 1, true) ~= nil
-  elseif t == "array" then
+  if T(hay) == "array" then
     for _, el in ipairs(hay) do
       if value.eq(el, needle) then
         return true
       end
     end
     return false
-  elseif t == "object" then
-    return T(needle) == "string" and hay[needle] ~= nil
+  elseif T(hay) == "string" and T(needle) == "string" then
+    return hay:find(needle, 1, true) ~= nil
+  elseif T(hay) == "object" and T(needle) == "string" then
+    return hay[needle] ~= nil
   end
-  return false
+  return value.eq(hay, needle)
+end, { 2 })
+
+R.icontains = function(env, args)
+  local hay, needle = args[1], args[2]
+  if T(needle) == "array" then
+    local out = {}
+    for i, el in ipairs(needle) do
+      out[i] = R.icontains(env, { hay, el })
+    end
+    return value.array(out)
+  elseif T(hay) == "array" then
+    for _, el in ipairs(hay) do
+      if R.icontains(env, { el, needle }) then
+        return true
+      end
+    end
+    return false
+  elseif T(hay) == "string" and T(needle) == "string" then
+    return vim.fn.tolower(hay):find(vim.fn.tolower(needle), 1, true) ~= nil
+  elseif T(hay) == "object" and T(needle) == "string" then
+    return hay[needle] ~= nil
+  end
+  return value.eq(hay, needle)
+end
+
+R.ldefault = function(_, args)
+  if T(args[1]) == "null" then
+    return args[2]
+  end
+  return args[1]
+end
+
+R.firstvalue = function(_, args)
+  if T(args[1]) == "array" then
+    for _, el in ipairs(args[1]) do
+      if T(el) ~= "null" then
+        return el
+      end
+    end
+  end
+  return NULL
+end
+
+R.reduce = function(env, args)
+  local arr, op = args[1], args[2]
+  if T(arr) ~= "array" or #arr == 0 then
+    return NULL
+  end
+  if T(op) == "array" then
+    local out = {}
+    for i, el in ipairs(op) do
+      out[i] = R.reduce(env, { arr, el })
+    end
+    return value.array(out)
+  end
+  if type(op) ~= "function" and not vim.tbl_contains({ "+", "-", "*", "/", "&", "|" }, op) then
+    return NULL
+  end
+  local acc = arr[1]
+  for i = 2, #arr do
+    if type(op) == "function" then
+      if T(arr[i]) ~= "null" then
+        acc = op({ acc, arr[i] })
+      end
+    elseif op == "&" then
+      acc = value.truthy(acc) and value.truthy(arr[i])
+    elseif op == "|" then
+      acc = value.truthy(acc) or value.truthy(arr[i])
+    else
+      acc = value.arith(op, acc, arr[i])
+    end
+  end
+  return acc
+end
+
+R.product = function(env, args)
+  if T(args[1]) ~= "array" then
+    return args[1]
+  end
+  return R.reduce(env, { args[1], "*" })
+end
+
+R.display = function(env, args)
+  local v = args[1]
+  if T(v) == "null" then
+    return ""
+  end
+  if T(v) == "array" then
+    local out = {}
+    for i, el in ipairs(v) do
+      out[i] = R.display(env, { el })
+    end
+    return table.concat(out, ", ")
+  end
+  local text = value.to_display(v, env.settings)
+  if T(v) ~= "link" and T(v) ~= "string" then
+    return text
+  end
+  text = text:gsub("%[%[([^%]]-)|([^%]]-)%]%]", "%2"):gsub("%[%[([^%]]-)%]%]", "%1")
+  text = text:gsub("!?%[([^%]]-)%]%([^%)]-%)", "%1"):gsub("<[^>]->", "")
+  text = text:gsub("%*%*(.-)%*%*", "%1"):gsub("__(.-)__", "%1"):gsub("~~(.-)~~", "%1")
+  text = text:gsub("%*([^*]-)%*", "%1"):gsub("_([^_]-)_", "%1"):gsub("`([^`]-)`", "%1")
+  return text
 end
 
 ---------------------------------------------------------------- constructors
 
-R.date = vectorize(function(_, args)
+R.date = vectorize(function(env, args)
   local t = T(args[1])
   if t == "date" then
     return args[1]
   elseif t == "string" then
-    return value.parse_date(args[1])
+    if T(args[2]) == "string" then
+      return M.parse_dateformat(args[1], args[2])
+    end
+    return value.parse_date(args[1], true)
+  elseif t == "link" then
+    local link = args[1]
+    local date = value.parse_date(link.display or "", true)
+    if date ~= NULL then
+      return date
+    end
+    date = value.parse_date(vim.fn.fnamemodify(link.path, ":t:r"), true)
+    if date ~= NULL then
+      return date
+    end
+    local page = env.resolve_page and env.resolve_page(link.path)
+    return page and page.file.day or NULL
   end
   return NULL
 end)
@@ -135,8 +257,8 @@ R.number = vectorize(function(_, args)
   return NULL
 end)
 
-R.string = function(_, args)
-  return value.to_display(args[1])
+R.string = function(env, args)
+  return value.to_display(args[1], env.settings)
 end
 
 R.list = function(_, args)
@@ -144,16 +266,17 @@ R.list = function(_, args)
 end
 R.array = R.list
 
-R.link = function(_, args)
+R.link = vectorize(function(env, args)
   local t = T(args[1])
   if t == "link" then
     local l = args[1]
-    return T(args[2]) == "string" and value.link(l.path, { subpath = l.subpath, display = args[2] }) or l
+    return T(args[2]) == "string" and value.link(l.path, vim.tbl_extend("force", {}, l, { display = args[2] })) or l
   elseif t == "string" then
-    return value.link(args[1], { display = T(args[2]) == "string" and args[2] or nil })
+    local link = value.link(args[1], { display = T(args[2]) == "string" and args[2] or nil, embed = args[3] == true })
+    return env.normalize_link and env.normalize_link(link) or link
   end
   return NULL
-end
+end)
 
 R.object = function(_, args)
   local out = {}
@@ -178,22 +301,42 @@ end)
 R.endswith = str_fn(function(s, suf)
   return T(suf) == "string" and vim.endswith(s, suf)
 end)
+local function padding(s, n, ch)
+  if T(n) ~= "number" then
+    return NULL
+  end
+  ch = T(ch) == "string" and ch or " "
+  local need = math.max(0, math.floor(n) - vim.fn.strchars(s))
+  if ch == "" or need == 0 then
+    return ""
+  end
+  return vim.fn.strcharpart(string.rep(ch, math.ceil(need / vim.fn.strchars(ch))), 0, need)
+end
 R.padleft = str_fn(function(s, n, ch)
-  return string.rep(T(ch) == "string" and ch or " ", math.max(0, (n or 0) - #s)) .. s
+  local pad = padding(s, n, ch)
+  return pad == NULL and NULL or pad .. s
 end)
 R.padright = str_fn(function(s, n, ch)
-  return s .. string.rep(T(ch) == "string" and ch or " ", math.max(0, (n or 0) - #s))
+  local pad = padding(s, n, ch)
+  return pad == NULL and NULL or s .. pad
 end)
 R.substring = str_fn(function(s, from, to)
-  return s:sub((from or 0) + 1, to or #s) -- dataview substrings are 0-based
+  local size = vim.fn.strchars(s)
+  from, to = math.max(0, math.min(size, from or 0)), math.max(0, math.min(size, to or size))
+  if from > to then
+    from, to = to, from
+  end
+  return vim.fn.strcharpart(s, from, to - from)
 end)
 R.truncate = str_fn(function(s, n, suffix)
-  suffix = T(suffix) == "string" and suffix or "…"
-  if vim.fn.strchars(s) <= (n or 0) then
+  suffix = T(suffix) == "string" and suffix or "..."
+  local keep = math.max(0, (n or 0) - vim.fn.strchars(suffix))
+  if vim.fn.strchars(s) <= keep then
     return s
   end
-  return vim.fn.strcharpart(s, 0, math.max(0, (n or 0) - vim.fn.strchars(suffix))) .. suffix
+  return vim.fn.strcharpart(s, 0, keep) .. suffix
 end)
+
 R.replace = str_fn(function(s, pat, rep)
   if T(pat) ~= "string" or T(rep) ~= "string" then
     return NULL
@@ -205,23 +348,62 @@ R.split = function(_, args)
   if T(args[1]) ~= "string" or T(args[2]) ~= "string" then
     return NULL
   end
-  return value.array(vim.split(args[1], args[2], { plain = true }))
+  local regex = require("obsidian-query.regex")
+  if not regex.compile(args[2]) then
+    return NULL
+  end
+  local pattern = "\\v\\C" .. regex.to_vim(args[2])
+  local text, out, start, scan, last_zero = args[1], {}, 0, 0, false
+  local limit = T(args[3]) == "number" and math.max(0, math.floor(args[3])) or math.huge
+  while #out < limit do
+    local found = vim.fn.matchstrpos(text, pattern, scan)
+    local first, ending = found[2], found[3]
+    if first < 0 then
+      break
+    end
+    last_zero = ending == first
+    if ending > start then
+      out[#out + 1] = text:sub(start + 1, first)
+      start = ending
+    end
+    if ending == first then
+      if ending >= #text then
+        break
+      end
+      scan = ending + #vim.fn.strcharpart(text:sub(ending + 1), 0, 1)
+    else
+      scan = ending
+    end
+  end
+  if #out < limit and (start < #text or not last_zero) then
+    out[#out + 1] = text:sub(start + 1)
+  end
+  return value.array(out)
 end
 
 -- shared PCRE-ish -> vim very-magic translator (lookarounds, alternation)
 local regex = require("obsidian-query.regex")
 
-R.regexmatch = str_fn(function(s, pat)
-  if T(pat) ~= "string" then
+R.regextest = vectorize(function(_, args)
+  if T(args[1]) == "null" or T(args[2]) == "null" then
+    return false
+  end
+  if T(args[1]) ~= "string" or T(args[2]) ~= "string" then
     return NULL
   end
-  local re = regex.compile(pat)
-  if not re then
-    return NULL
+  local re = regex.compile(args[1])
+  return re and re:match_str(args[2]) ~= nil or false
+end, { 1, 2 })
+R.regexmatch = vectorize(function(env, args)
+  if T(args[1]) ~= "string" then
+    return R.regextest(env, args)
   end
-  return re:match_str(s) ~= nil
-end)
-R.regextest = R.regexmatch
+  local pat = args[1]
+  if pat:sub(1, 1) ~= "^" and pat:sub(-1) ~= "$" then
+    pat = "^" .. pat .. "$"
+  end
+  return R.regextest(env, { pat, args[2] })
+end, { 1, 2 })
 
 R.regexreplace = str_fn(function(s, pat, rep)
   if T(pat) ~= "string" or T(rep) ~= "string" then
@@ -252,11 +434,15 @@ R.last = function(_, args)
   return #a == 0 and NULL or a[#a]
 end
 R.reverse = function(_, args)
-  local a, out = as_array(args[1]), {}
+  local kind = T(args[1])
+  if kind ~= "array" and kind ~= "string" then
+    return args[1]
+  end
+  local a, out = kind == "string" and vim.fn.split(args[1], "\\zs") or args[1], {}
   for i = #a, 1, -1 do
     out[#out + 1] = a[i]
   end
-  return value.array(out)
+  return kind == "string" and table.concat(out) or value.array(out)
 end
 R.sort = function(_, args)
   local a = vim.list_slice(as_array(args[1]))
@@ -335,11 +521,11 @@ R.flat = function(_, args)
   end
   return value.array(go(as_array(args[1]), depth))
 end
-R.join = function(_, args)
+R.join = function(env, args)
   local sep = T(args[2]) == "string" and args[2] or ", "
   local parts = {}
   for _, el in ipairs(as_array(args[1])) do
-    parts[#parts + 1] = value.to_display(el)
+    parts[#parts + 1] = value.to_display(el, env.settings)
   end
   return table.concat(parts, sep)
 end
@@ -366,25 +552,45 @@ R.filter = function(_, args)
   return value.array(out)
 end
 R.slice = function(_, args)
-  local a = as_array(args[1])
-  local from = (T(args[2]) == "number" and args[2] or 0) + 1
-  local to = T(args[3]) == "number" and args[3] or #a
-  return value.array(vim.list_slice(a, from, to))
+  if T(args[1]) ~= "array" then
+    return NULL
+  end
+  local a = args[1]
+  local function bound(n, default)
+    if T(n) ~= "number" then
+      return default
+    end
+    n = n < 0 and math.ceil(n) or math.floor(n)
+    return math.max(0, math.min(#a, n < 0 and #a + n or n))
+  end
+  local out = {}
+  for i = bound(args[2], 0) + 1, bound(args[3], #a) do
+    out[#out + 1] = a[i]
+  end
+  return value.array(out)
 end
+
 R.nonnull = function(_, args)
   local out = {}
-  for _, el in ipairs(as_array(args[1])) do
+  for _, el in ipairs(#args == 1 and T(args[1]) == "array" and args[1] or args) do
     if T(el) ~= "null" then
       out[#out + 1] = el
     end
   end
   return value.array(out)
 end
+local function predicate_args(args)
+  if T(args[1]) == "array" and (#args == 1 or (#args == 2 and type(args[2]) == "function")) then
+    return args[1], args[2]
+  end
+  return args
+end
 R.any = function(_, args)
-  for _, el in ipairs(as_array(args[1])) do
+  local array, predicate = predicate_args(args)
+  for _, el in ipairs(array) do
     local v = el
-    if type(args[2]) == "function" then
-      v = args[2]({ el })
+    if predicate then
+      v = predicate({ el })
     end
     if value.truthy(v) then
       return true
@@ -396,10 +602,11 @@ R.none = function(env, args)
   return not R.any(env, args)
 end
 R.all = function(_, args)
-  for _, el in ipairs(as_array(args[1])) do
+  local array, predicate = predicate_args(args)
+  for _, el in ipairs(array) do
     local v = el
-    if type(args[2]) == "function" then
-      v = args[2]({ el })
+    if predicate then
+      v = predicate({ el })
     end
     if not value.truthy(v) then
       return false
@@ -407,21 +614,22 @@ R.all = function(_, args)
   end
   return true
 end
-R.sum = function(_, args)
-  local acc = NULL
-  for _, el in ipairs(as_array(args[1])) do
-    acc = T(acc) == "null" and el or value.arith("+", acc, el)
+R.sum = function(env, args)
+  if T(args[1]) ~= "array" then
+    return args[1]
   end
-  return acc
+  return R.reduce(env, { args[1], "+" })
 end
-R.average = function(_, args)
-  local a = as_array(args[1])
-  if #a == 0 then
+R.average = function(env, args)
+  if T(args[1]) ~= "array" then
+    return args[1]
+  end
+  if #args[1] == 0 then
     return NULL
   end
-  local s = R.sum(_, { a })
-  return value.arith("/", s, #a)
+  return value.arith("/", R.sum(env, args), #args[1])
 end
+
 R.min = function(_, args)
   local a = #args > 1 and args or as_array(args[1])
   local best = NULL
@@ -453,6 +661,9 @@ R.minby = function(_, args)
       best, bestkey = el, k
     end
   end
+  if best == NULL and T(args[1]) == "array" and #args[1] > 0 then
+    return args[1][1]
+  end
   return best
 end
 R.maxby = function(_, args)
@@ -465,6 +676,9 @@ R.maxby = function(_, args)
     if T(k) ~= "null" and (T(bestkey) == "null" or value.cmp(k, bestkey) > 0) then
       best, bestkey = el, k
     end
+  end
+  if best == NULL and T(args[1]) == "array" and #args[1] > 0 then
+    return args[1][1]
   end
   return best
 end
@@ -514,6 +728,7 @@ local FMT = {
   { "hh", "%I" },
   { "mm", "%M" },
   { "ss", "%S" },
+  { "SSS", nil },
   { "EEEE", "%A" },
   { "EEE", "%a" },
   { "ccc", "%a" },
@@ -541,6 +756,8 @@ R.dateformat = vectorize(function(_, args)
             out[#out + 1] = tostring(math.floor(d.ts))
           elseif tok == "x" then
             out[#out + 1] = tostring(math.floor(d.ts * 1000))
+          elseif tok == "SSS" then
+            out[#out + 1] = ("%03d"):format(d.millisecond)
           else
             out[#out + 1] = os.date(pair[2], math.floor(d.ts)) --[[@as string]]
           end
@@ -554,7 +771,7 @@ R.dateformat = vectorize(function(_, args)
           { M = "month", d = "day", H = "hour", h = "hour", m = "minute", s = "second", q = "quarter", o = "dayofyear" }
         local ch = fmt:sub(i, i)
         if single[ch] then
-          out[#out + 1] = tostring(d[single[ch]])
+          out[#out + 1] = tostring(ch == "h" and ((d.hour + 11) % 12 + 1) or d[single[ch]])
         elseif ch == "W" then
           out[#out + 1] = tostring(d.week)
         else
@@ -566,6 +783,129 @@ R.dateformat = vectorize(function(_, args)
   end
   return table.concat(out)
 end)
+
+function M.parse_dateformat(text, fmt)
+  if fmt == "x" or fmt == "X" then
+    local n = tonumber(text)
+    return n and value.date(n / (fmt == "x" and 1000 or 1)) or NULL
+  end
+  local patterns = {
+    yyyy = "(%d%d%d%d)",
+    yy = "(%d%d)",
+    MMMM = "([^%s%p%d]+)",
+    MMM = "([^%s%p%d]+)",
+    MM = "(%d%d)",
+    M = "(%d%d?)",
+    dd = "(%d%d)",
+    d = "(%d%d?)",
+    HH = "(%d%d)",
+    H = "(%d%d?)",
+    hh = "(%d%d)",
+    h = "(%d%d?)",
+    mm = "(%d%d)",
+    m = "(%d%d?)",
+    ss = "(%d%d)",
+    s = "(%d%d?)",
+    SSS = "(%d%d%d)",
+    a = "(%a+)",
+  }
+  local tokens =
+    { "yyyy", "MMMM", "MMM", "SSS", "yy", "MM", "dd", "HH", "hh", "mm", "ss", "M", "d", "H", "h", "m", "s", "a" }
+  local pattern, fields, i = {}, {}, 1
+  while i <= #fmt do
+    if fmt:sub(i, i) == "'" then
+      local stop = fmt:find("'", i + 1, true)
+      if not stop then
+        return NULL
+      end
+      pattern[#pattern + 1], i = vim.pesc(fmt:sub(i + 1, stop - 1)), stop + 1
+    else
+      local matched
+      for _, token in ipairs(tokens) do
+        if fmt:sub(i, i + #token - 1) == token then
+          pattern[#pattern + 1], fields[#fields + 1] = patterns[token], token
+          i, matched = i + #token, true
+          break
+        end
+      end
+      if not matched then
+        pattern[#pattern + 1], i = vim.pesc(fmt:sub(i, i)), i + 1
+      end
+    end
+  end
+  local captures = { text:match("^" .. table.concat(pattern) .. "$") }
+  if #captures == 0 or #fields == 0 then
+    return NULL
+  end
+  local parts = { year = os.date("*t").year, month = 1, day = 1, hour = 0, min = 0, sec = 0 }
+  local units = {
+    yyyy = "year",
+    yy = "year",
+    MM = "month",
+    M = "month",
+    dd = "day",
+    d = "day",
+    HH = "hour",
+    H = "hour",
+    hh = "hour",
+    h = "hour",
+    mm = "min",
+    m = "min",
+    ss = "sec",
+    s = "sec",
+  }
+  local meridiem, twelve, millis = nil, false, 0
+  for n, token in ipairs(fields) do
+    local raw = captures[n]
+    if token == "a" then
+      meridiem = raw:lower()
+    elseif token == "SSS" then
+      millis = tonumber(raw)
+    elseif token == "MMMM" or token == "MMM" then
+      local month
+      for m = 1, 12 do
+        if
+          os.date(token == "MMMM" and "%B" or "%b", os.time({ year = 2026, month = m, day = 1 })):lower() == raw:lower()
+        then
+          month = m
+          break
+        end
+      end
+      if not month then
+        return NULL
+      end
+      parts.month = month
+    else
+      local number = tonumber(raw)
+      if token == "yy" then
+        number = number + (number <= 60 and 2000 or 1900)
+      end
+      if token == "h" or token == "hh" then
+        twelve = true
+      end
+      parts[units[token]] = number
+    end
+  end
+  if twelve then
+    if parts.hour < 1 or parts.hour > 12 then
+      return NULL
+    end
+    parts.hour = parts.hour % 12 + (meridiem == "pm" and 12 or 0)
+  end
+  if meridiem and meridiem ~= "am" and meridiem ~= "pm" then
+    return NULL
+  end
+  local iso = ("%04d-%02d-%02dT%02d:%02d:%02d.%03d"):format(
+    parts.year,
+    parts.month,
+    parts.day,
+    parts.hour,
+    parts.min,
+    parts.sec,
+    millis
+  )
+  return value.parse_date(iso, true)
+end
 
 -- Luxon Duration.toFormat token subset: y M d h m s S, '...' literals,
 -- token length = zero padding
@@ -614,9 +954,9 @@ R.currencyformat = vectorize(function(_, args)
   local sym = CURRENCY[code] or (code .. " ")
   local n = args[1]
   local decimals = code == "JPY" and 0 or 2
-  local int = ("%d"):format(math.floor(math.abs(n)))
+  local rounded = ("%." .. decimals .. "f"):format(math.abs(n))
+  local int, frac = rounded:match("^(%d+)(.*)$")
   local grouped = int:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
-  local frac = decimals > 0 and ("%." .. decimals .. "f"):format(math.abs(n) % 1):sub(2) or ""
   return (n < 0 and "-" or "") .. sym .. grouped .. frac
 end)
 
@@ -633,35 +973,62 @@ R.meta = function(_, args)
   end
   return NULL
 end
-R.elink = function(_, args)
+R.elink = vectorize(function(_, args)
   if T(args[1]) ~= "string" then
     return NULL
   end
-  return value.link(args[1], { display = T(args[2]) == "string" and args[2] or args[1] })
-end
-R.embed = function(_, args)
-  return args[1]
-end
+  return value.external_link(args[1], T(args[2]) == "string" and args[2] or args[1])
+end)
+R.embed = vectorize(function(_, args)
+  if T(args[1]) ~= "link" then
+    return NULL
+  end
+  return value.link(args[1].path, vim.tbl_extend("force", {}, args[1], { embed = args[2] == nil or args[2] == true }))
+end, { 1, 2 })
 R.containsword = str_fn(function(s, w)
   if T(w) ~= "string" then
     return NULL
   end
   return s:lower():find("%f[%w]" .. vim.pesc(w:lower()) .. "%f[%W]") ~= nil
 end)
-R.extract = function(_, args)
-  if T(args[1]) ~= "object" then
-    return NULL
-  end
+R.extract = vectorize(function(env, args)
   local out = {}
   for i = 2, #args do
     if T(args[i]) == "string" then
-      out[args[i]] = args[1][args[i]]
+      out[args[i]] = require("obsidian-query.dataview.eval").index(args[1], args[i], env)
     end
   end
   return out
-end
+end)
 R.hash = function(_, args)
-  return vim.fn.sha256(value.to_display(args[1])):sub(1, 8)
+  if T(args[1]) ~= "string" or (T(args[2]) ~= "string" and T(args[2]) ~= "number") then
+    return NULL
+  end
+  local text = args[1] .. (T(args[2]) == "string" and args[2] or "")
+  local seed = T(args[2]) == "number" and args[2] or (T(args[3]) == "number" and args[3] or 0)
+  local bit = require("bit")
+  local function imul(a, b)
+    local lo = bit.band(a, 65535) * bit.band(b, 65535)
+    local hi = bit.rshift(a, 16) * bit.band(b, 65535) + bit.band(a, 65535) * bit.rshift(b, 16)
+    return bit.tobit(lo + bit.lshift(hi, 16))
+  end
+  local h1, h2 = bit.bxor(0xdeadbeef, seed), bit.bxor(0x41c6ce57, seed)
+  local function add(ch)
+    h1 = imul(bit.bxor(h1, ch), 2654435761)
+    h2 = imul(bit.bxor(h2, ch), 1597334677)
+  end
+  for _, ch in ipairs(vim.fn.str2list(text, true)) do
+    if ch > 65535 then
+      ch = ch - 65536
+      add(55296 + math.floor(ch / 1024))
+      add(56320 + ch % 1024)
+    else
+      add(ch)
+    end
+  end
+  h1 = bit.bxor(imul(bit.bxor(h1, bit.rshift(h1, 16)), 2246822507), imul(bit.bxor(h2, bit.rshift(h2, 13)), 3266489909))
+  h2 = bit.bxor(imul(bit.bxor(h2, bit.rshift(h2, 16)), 2246822507), imul(bit.bxor(h1, bit.rshift(h1, 13)), 3266489909))
+  return 4294967296 * bit.band(h2, 2097151) + (h1 < 0 and h1 + 4294967296 or h1)
 end
 
 return M

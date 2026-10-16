@@ -1,7 +1,7 @@
 <h1 align="center">obsidian-query.nvim</h1>
 
 <p align="center">
-  Live <a href="https://obsidian.md">Obsidian</a> queries inside Neovim — no Obsidian required.
+  Live <a href="https://obsidian.md">Obsidian</a> queries inside Neovim, no Obsidian required.
 </p>
 
 <p align="center">
@@ -127,7 +127,7 @@ path:Projects task-todo:draft OR task-todo:press
 Search supports words, quoted phrases, regex, `OR`, `-` negation, and groups.
 Use `tag:`, `path:`, `file:`, or `[property:value]` to narrow results;
 `line:(...)`, `section:(...)`, and `block:(...)` restrict where terms match.
-Lowercase terms ignore case; uppercase letters make a plain-text term case-sensitive.
+Embedded searches ignore case by default. Use `match-case:(...)` for exact case.
 
 ### Calendar heat map
 
@@ -142,6 +142,9 @@ CALENDAR FROM "Journal"
 <img alt="Journal activity by day, with month navigation" src="assets/calendar.gif" width="850">
 
 The calendar uses dates from note names or a frontmatter `date` field.
+Dates follow Dataview's format (`2026-02-18` or `2026-02-18T16:05`). Notes
+without one are counted under the grid, because Dataview draws no calendar
+at all when any note lacks a date.
 Brighter days have more notes; today is marked so you can find your way back.
 The colors follow your colorscheme. Use Left/Right on the query to change
 months, Home to return to this month, or click a day to open its notes.
@@ -201,7 +204,8 @@ Font, set `icons = "ascii"` or `vim.g.have_nerd_font = false`.
 
 Start typing a query and let your vault fill in the names. The completion
 source suggests keywords and functions, along with your tags, folders,
-notes, and properties. Function documentation is there in the menu too.
+notes, properties, and existing property values inside DQL strings.
+Function documentation is there in the menu too.
 
 For [blink.cmp](https://github.com/Saghen/blink.cmp), add a source to its options:
 
@@ -222,17 +226,23 @@ sources = {
 ## Differences from Obsidian
 
 - `dataviewjs` and `$=` JavaScript expressions aren't supported.
-- Arrays use 1-based indexing.
-- Dates use local time without timezone or millisecond support.
-- Plain items in `file.lists` have no parent/child nesting; tasks do.
 - Regex is translated to Vim regex. In-pattern backreferences, named groups,
   and inline flags aren't supported.
-- Dataview queries read saved notes from obsidian.nvim's cache.
+- Other notes use obsidian.nvim's saved cache. `this` includes unsaved edits
+  in the containing buffer.
 
 The query engines are implemented in Lua, based on
 [Dataview](https://github.com/blacksmithgu/obsidian-dataview) and
 [Obsidian Search](https://help.obsidian.md/plugins/search). They don't run
-Obsidian's plugins or read Dataview's settings.
+Obsidian's plugins. Dataview settings are read from each vault's
+`.obsidian/plugins/dataview/data.json`, with Dataview defaults for missing keys.
+These settings control date formats, null display, counts, empty-result
+warnings, inline prefixes, column names, and task completion tracking.
+Query errors also appear as diagnostics at the error position in the fence.
+
+Search results sort by filename, ignoring case and ordering digit runs
+numerically. Locale-specific ordering can differ from Obsidian. Matching
+text shows up to 100 characters of context on either side, within the line.
 
 ## Credits
 

@@ -150,7 +150,19 @@ function M.clip(s, w)
   if vim.fn.strdisplaywidth(s) <= w then
     return s
   end
-  return vim.fn.strcharpart(s, 0, w - 1) .. "…"
+  if w <= 0 then
+    return ""
+  end
+  local lo, hi = 0, vim.fn.strchars(s)
+  while lo < hi do
+    local mid = math.ceil((lo + hi) / 2)
+    if vim.fn.strdisplaywidth(vim.fn.strcharpart(s, 0, mid) .. "…") <= w then
+      lo = mid
+    else
+      hi = mid - 1
+    end
+  end
+  return vim.fn.strcharpart(s, 0, lo) .. "…"
 end
 
 ---Result picker. Items carry `display` (segment list: { {text, hl?}, ... })

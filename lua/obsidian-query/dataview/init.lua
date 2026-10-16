@@ -7,15 +7,15 @@ local base = require("obsidian-query.render")
 local M = {}
 
 function M.parse(body)
-  body = vim.trim(body)
-  if body == "" then
+  if vim.trim(body) == "" then
     return nil
   end
   return { body = body }
 end
 
 function M.key(spec, ctx)
-  return "dataview\0" .. ctx.root .. "\0" .. (ctx.buf or "") .. "\0" .. spec.body
+  local settings = require("obsidian-query.dataview.settings").get(ctx.root)
+  return "dataview\0" .. ctx.root .. "\0" .. (ctx.buf or "") .. "\0" .. tostring(settings) .. "\0" .. spec.body
 end
 
 function M.run(spec, ctx, cb)
@@ -28,11 +28,14 @@ function M.run(spec, ctx, cb)
     local this_path = ctx.buf and vim.api.nvim_buf_is_valid(ctx.buf) and vim.api.nvim_buf_get_name(ctx.buf) or nil
     cb(query.run(spec.body, {
       index = idx.rows,
+      pages = idx.pages,
+      resolve = idx.resolve,
       root = ctx.root,
       sup = idx.sup,
       inlinks = idx.inlinks,
       starred = idx.starred,
       this_path = this_path,
+      this = require("obsidian-query.index").this_page(idx, ctx.buf, ctx.root),
     }))
   end)
 end
@@ -67,7 +70,7 @@ local open_items = base.picker
 ---@param line string
 ---@param expected_text string? reject a stale picker row
 ---@return string? toggled nil when the line holds no checkbox
-function M.toggle_task_line(line, expected_text)
+function M.toggle_task_line(line, expected_text, settings, desired)
   local pre, state, post = line:match("^(%s*[%-%*%+]%s+%[)([^%]])(%].*)$")
   if not pre then
     pre, state, post = line:match("^(%s*%d+[%.%)]%s+%[)([^%]])(%].*)$")
@@ -79,7 +82,35 @@ function M.toggle_task_line(line, expected_text)
   if expected_text and (post:match("^%]%s(.*)$") or "") ~= expected_text then
     return nil
   end
-  return pre .. (state == " " and "x" or " ") .. post
+  local done = desired
+  if done == nil then
+    done = state == " "
+  end
+  if settings and settings.taskCompletionTracking then
+    local text = post:sub(2)
+    local id = text:match("%s+(%^[%w%-]+)%s*$")
+    if id then
+      text = text:gsub("%s+%^[%w%-]+%s*$", "")
+    end
+    if settings.taskCompletionUseEmojiShorthand then
+      text = text:gsub("%s*✅%s*%d%d%d%d%-%d%d%-%d%d", "")
+      if done then
+        text = text .. " ✅ " .. os.date("%Y-%m-%d")
+      end
+    else
+      local key = vim.pesc(settings.taskCompletionText)
+      text = text:gsub("%s*%[" .. key .. "::[^%]]*%]", ""):gsub("%s*%(" .. key .. "::[^%)]*%)", "")
+      if done then
+        local date = require("obsidian-query.dataview.functions").registry.dateformat({}, {
+          value.date(os.time()),
+          settings.taskCompletionDateFormat,
+        })
+        text = text .. " [" .. settings.taskCompletionText .. ":: " .. date .. "]"
+      end
+    end
+    post = "]" .. text:gsub("%s+$", "") .. (id and (" " .. id) or "")
+  end
+  return pre .. (done and "x" or " ") .. post
 end
 
 -- <C-t> in the TASK picker: toggle the checkbox in its file (through the
@@ -89,29 +120,64 @@ end
 ---@param item table picker item
 ---@return boolean? done new state, nil when nothing was toggled
 local function toggle_item(item)
-  if not (item and item.pos and item.file) then
+  if not (item and item.pos and item.file) or (item.task and item.task.task == false) then
     return nil
   end
   local buf = vim.fn.bufadd(item.file)
   vim.fn.bufload(buf)
   local lnum = item.pos[1]
   local line = vim.api.nvim_buf_get_lines(buf, lnum - 1, lnum, false)[1]
-  local toggled = line and M.toggle_task_line(line, item.task_text)
+  local settings = item.settings or require("obsidian-query.dataview.settings").defaults
+  local toggled = line and M.toggle_task_line(line, (item.task and item.task.text) or item.task_text, settings)
   if not toggled then
     vim.notify("obsidian-query: task changed or moved; reopen the query picker", vim.log.levels.WARN)
     return nil
   end
   vim.bo[buf].buflisted = true
-  vim.api.nvim_buf_set_lines(buf, lnum - 1, lnum, false, { toggled })
+  local edits = { { line = lnum, text = toggled, task = item.task } }
+  local desired = toggled:match("^%s*.-%[([^%]])%]") == "x"
+  if settings.recursiveSubTaskCompletion then
+    local function children(task)
+      for _, child in ipairs(task.children or {}) do
+        if child.task ~= false then
+          local raw =
+            vim.api.nvim_buf_get_lines(buf, (child._line or child.line) - 1, child._line or child.line, false)[1]
+          local text = raw and M.toggle_task_line(raw, child.text, settings, desired)
+          if not text then
+            return false
+          end
+          edits[#edits + 1] = { line = child._line or child.line, text = text, task = child }
+        end
+        if not children(child) then
+          return false
+        end
+      end
+      return true
+    end
+    if not children(item.task or {}) then
+      return nil
+    end
+  end
+  for _, edit in ipairs(edits) do
+    vim.api.nvim_buf_set_lines(buf, edit.line - 1, edit.line, false, { edit.text })
+  end
   vim.api.nvim_buf_call(buf, function()
     vim.cmd("silent write")
   end)
+  for _, edit in ipairs(edits) do
+    if edit.task then
+      edit.task.text = edit.text:match("^%s*.-%[[^%]]%]%s(.*)$") or ""
+      edit.task.status = desired and "x" or " "
+      edit.task.checked, edit.task.completed = desired, desired
+    end
+  end
   -- reflect it in the picker row (display segs 3/4 = checkbox, text)
   local state = toggled:match("^%s*.-%[([^%]])%]") or " "
   local done = state == "x" or state == "X"
   local box = base.checkbox(state)
+  item.task_text = toggled:match("^%s*.-%[[^%]]%]%s(.*)$") or ""
   item.display[3] = { box.icon, box.highlight }
-  item.display[4][2] = done and "Comment" or "Normal"
+  item.display[4] = { item.task_text, done and "Comment" or "Normal" }
   return done
 end
 
@@ -128,10 +194,10 @@ function M.pick(spec, ctx, result)
       if row.path ~= "" then
         local parts = {}
         for _, c in ipairs(row.cells) do
-          parts[#parts + 1] = value.to_display(c)
+          parts[#parts + 1] = value.to_display(c, data.settings)
         end
         local cells = table.concat(parts, " · ")
-        local id = value.to_display(row.id)
+        local id = value.to_display(row.id, data.settings)
         items[#items + 1] = {
           file = row.path,
           text = id .. " " .. cells,
@@ -143,8 +209,8 @@ function M.pick(spec, ctx, result)
     for _, group in ipairs(data.groups) do
       for _, item in ipairs(group.items) do
         if item.path ~= "" then
-          local label = value.to_display(item.link or item.text)
-          local extra = item.link and item.text and value.to_display(item.text) or ""
+          local label = value.to_display(item.link ~= nil and item.link or item.text, data.settings)
+          local extra = item.link and item.text and value.to_display(item.text, data.settings) or ""
           items[#items + 1] = {
             file = item.path,
             text = label .. " " .. extra,
@@ -154,29 +220,42 @@ function M.pick(spec, ctx, result)
       end
     end
   elseif data.kind == "task" then
-    for _, group in ipairs(data.groups) do
-      for _, task in ipairs(group.items) do
-        local box = base.checkbox(task.status)
-        items[#items + 1] = {
-          file = task.path,
-          text = note_name(task.path) .. " " .. task.text,
-          pos = { task.line, 0 },
-          task_text = task.text,
-          display = {
-            { note_name(task.path), "Directory" },
-            { "  " },
-            { box.icon, box.highlight },
-            { task.text, task.completed and "Comment" or "Normal" },
-          },
-        }
+    local function add_task(task)
+      local box = task.task == false and { icon = "• ", highlight = "RenderMarkdownBullet" }
+        or base.checkbox(task.status)
+      items[#items + 1] = {
+        file = task._path or task.path,
+        text = note_name(task.path) .. " " .. task.text,
+        pos = { task._line or task.line, 0 },
+        task_text = task.text,
+        task = task,
+        settings = data.settings,
+        display = {
+          { note_name(task.path), "Directory" },
+          { "  " },
+          { box.icon, box.highlight },
+          { task.text, task.completed and "Comment" or "Normal" },
+        },
+      }
+      for _, child in ipairs(task.children or {}) do
+        add_task(child)
       end
     end
+    local function add_groups(groups)
+      for _, group in ipairs(groups) do
+        for _, task in ipairs(dv_render.task_roots(group.items)) do
+          add_task(task)
+        end
+        add_groups(group.groups or {})
+      end
+    end
+    add_groups(data.groups)
   elseif data.kind == "calendar" then
     -- only the month on screen, matching the one-month inline view
     local shown = dv_render.view_month(data, result.view)
     for _, d in ipairs(data.dated) do
       if d.path ~= "" and d.date.year == shown.year and d.date.month == shown.month then
-        local date = value.to_display(d.date)
+        local date = value.to_display(d.date, data.settings)
         items[#items + 1] = {
           file = d.path,
           text = date .. " " .. note_name(d.path),

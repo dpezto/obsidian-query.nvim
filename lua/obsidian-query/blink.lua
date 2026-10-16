@@ -57,7 +57,7 @@ local FILE_FIELDS = {
   { "etags", "Tags exactly as written" },
   { "aliases", "Frontmatter aliases" },
   { "tasks", "Checkbox items (with .due, .completed, …)" },
-  { "lists", "Alias of tasks" },
+  { "lists", "All list items, including tasks" },
   { "inlinks", "Notes linking here" },
   { "outlinks", "Notes this links to" },
   { "frontmatter", "Raw frontmatter table" },
@@ -70,7 +70,7 @@ local TASK_FIELDS = {
   { "checked", 'status ~= " " (TASK queries)' },
   { "completed", "status is x/X (TASK queries)" },
   { "fullyCompleted", "Completed including all subtasks (TASK queries)" },
-  { "line", "1-indexed line in the note (TASK queries)" },
+  { "line", "0-indexed line in the note (TASK queries)" },
   { "section", "Link to the nearest heading above (TASK queries)" },
   { "due", "Date from [due:: …] or 📅 (TASK queries)" },
   { "completion", "Date from [completion:: …] or ✅ (TASK queries)" },
@@ -84,8 +84,8 @@ local TASK_FIELDS = {
 
 -- one-line signatures for the most-used DQL functions; rest get bare names
 local FN_DOCS = {
-  contains = "contains(hay, needle) — string/array/object, case-insensitive",
-  econtains = "econtains(hay, needle) — exact/case-sensitive contains",
+  contains = "contains(hay, needle): recursive, case-sensitive",
+  econtains = "econtains(hay, needle): exact array membership",
   length = "length(array|string|object)",
   date = "date(2026-07-28) / date(today|now|sow|som|soy…) / date(string)",
   dur = "dur(30 days) / dur(string)",
@@ -100,7 +100,7 @@ local FN_DOCS = {
   max = "max(a, b, …) / max(array)",
   dateformat = 'dateformat(date, "yyyy-MM-dd")',
   striptime = "striptime(date) — drop time component",
-  regexmatch = 'regexmatch(string, "\\d+")',
+  regexmatch = 'regexmatch("\\d+", string)',
   regexreplace = "regexreplace(string, pat, rep)",
   flat = "flat(array, depth = 1)",
   unique = "unique(array)",
@@ -113,7 +113,7 @@ local FN_DOCS = {
 local memo ---@type {key: string, data: table}?
 
 local function vault_data()
-  local out = { tags = {}, folders = {}, notes = {}, props = {} }
+  local out = { tags = {}, folders = {}, notes = {}, props = {}, values = {} }
   local ok, cache = pcall(require, "obsidian.cache")
   if not (ok and cache.is_enabled() and cache.is_ready()) then
     return out
@@ -125,11 +125,27 @@ local function vault_data()
   end
   -- completion re-queries on every keystroke: rebuild only after the vault
   -- data changed (generation bumps on writes, watcher events, vault switches)
-  local key = root .. "\0" .. core.generation()
+  local idx = require("obsidian-query.index").peek(root)
+  local key = root .. "\0" .. core.generation() .. "\0" .. tostring(idx)
   if memo and memo.key == key then
     return memo.data
   end
   local tags, folders, props = {}, {}, {}
+  local function add_field(k, val)
+    props[k] = true
+    local key = k:lower():gsub("%s+", "-")
+    out.values[key] = out.values[key] or {}
+    local function add(v)
+      if type(v) == "table" and vim.islist(v) then
+        for _, el in ipairs(v) do
+          add(el)
+        end
+      elseif type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
+        out.values[key][tostring(v)] = true
+      end
+    end
+    add(val)
+  end
   for path, row in pairs(cache.notes.all()) do
     if vim.startswith(path, root .. "/") then
       local rel = path:sub(#root + 2)
@@ -141,8 +157,11 @@ local function vault_data()
       for _, t in ipairs(row.tags or {}) do
         tags[t] = true
       end
-      for k in pairs(row.properties or {}) do
-        props[k] = true
+      for k, val in pairs(row.properties or {}) do
+        add_field(k, val)
+      end
+      for k, val in pairs(idx and idx.sup[path] and idx.sup[path].fields or {}) do
+        add_field(k, val)
       end
     end
   end
@@ -167,17 +186,21 @@ end
 
 ---Language of the fence containing `row` (0-based), or nil.
 local function fence_lang(buf, row)
-  for i = row, math.max(0, row - 200), -1 do
-    local line = vim.api.nvim_buf_get_lines(buf, i, i + 1, false)[1] or ""
-    local lang = line:match("^%s*```(%S*)")
-    if lang then
-      if i == row then
-        return nil -- cursor on a fence delimiter line
+  local marker, lang
+  local fence = require("obsidian-query.index").fence
+  for i, line in ipairs(vim.api.nvim_buf_get_lines(buf, 0, row + 1, false)) do
+    local next_marker = fence(line, marker)
+    if not marker and next_marker then
+      lang = line:match("^%s*[`~]+%s*(%S*)")
+      if i - 1 == row then
+        return nil
       end
-      return (lang == "query" or lang == "dataview") and lang or nil
+    elseif marker and not next_marker then
+      lang = nil
     end
+    marker = next_marker
   end
-  return nil
+  return marker and (lang == "query" or lang == "dataview") and lang or nil
 end
 
 ---------------------------------------------------------------- items
@@ -231,16 +254,41 @@ end
 
 local function dataview_items(before)
   local K = kinds()
-  -- inside an open string? (odd number of quotes before cursor — a closed
-  -- `FROM "x"` earlier in the line must NOT hijack later completions)
-  local _, nquotes = before:gsub('"', "")
-  if nquotes % 2 == 1 then
-    if before:match("[Ff][Rr][Oo][Mm]") then
+  local quote, start, escaped
+  for i = 1, #before do
+    local ch = before:sub(i, i)
+    if escaped then
+      escaped = false
+    elseif ch == "\\" then
+      escaped = true
+    elseif quote and ch == quote then
+      quote, start = nil, nil
+    elseif not quote and (ch == '"' or ch == "'") then
+      quote, start = ch, i
+    end
+  end
+  if quote then
+    local prefix = before:sub(1, start - 1)
+    local prop = prefix:match("([%w_%-%.]+)%s*[!<>=]+%s*$")
+    local fn, arg = prefix:match("([%w_]+)%s*%(%s*([%w_%-%.]+)%s*,%s*$")
+    if fn and vim.tbl_contains({ "contains", "icontains", "econtains", "containsword" }, fn:lower()) then
+      prop = arg
+    end
+    if prop then
+      prop = prop:gsub("^this%.", ""):lower()
+      local values = vim.tbl_keys(vault_data().values[prop] or {})
+      table.sort(values)
+      return vim.tbl_map(function(v)
+        local insert = v:gsub("\\", "\\\\"):gsub(vim.pesc(quote), "\\" .. quote)
+        return item(v, K.Value, "existing property value", insert)
+      end, values),
+        start
+    elseif prefix:match("[Ff][Rr][Oo][Mm]%s*$") then
       return vim.tbl_map(function(f)
         return item(f, K.Folder)
       end, vault_data().folders)
     end
-    return {} -- plain string literal: nothing to offer
+    return {}
   end
   if before:match("%[%[[^%]]*$") then
     return vim.tbl_map(function(n)
@@ -287,7 +335,20 @@ function source:get_completions(ctx, callback)
     return function() end
   end
   local before = ctx.line:sub(1, ctx.cursor[2])
-  local items = lang == "query" and query_items(before) or dataview_items(before)
+  local items, start
+  if lang == "query" then
+    items = query_items(before)
+  else
+    items, start = dataview_items(before)
+  end
+  if start then
+    for _, completion in ipairs(items) do
+      completion.textEdit = {
+        newText = completion.insertText,
+        range = { start = { line = row, character = start }, ["end"] = { line = row, character = ctx.cursor[2] } },
+      }
+    end
+  end
   callback({
     items = items,
     is_incomplete_backward = false,

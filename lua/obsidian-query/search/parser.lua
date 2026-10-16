@@ -158,6 +158,9 @@ function Parser:and_expr()
 end
 
 function Parser:unary()
+  if not self:peek() then
+    error("expected a term after negation", 0)
+  end
   if self:peek().t == "-" then
     self:next()
     return { k = "not", kid = self:unary() }

@@ -141,7 +141,7 @@ check(value.typeof(value.parse_date("nope")) == "null", "bad date -> null")
 -- Obsidian writes frontmatter timestamps space-separated, not ISO "T"
 local sp = value.parse_date("2024-02-18 10:44")
 check(sp.prec == "datetime" and sp.hour == 10 and sp.minute == 44, "space-separated datetime")
-check(value.to_display(sp) == "2024-02-18 10:44", "space form keeps its time")
+check(value.to_display(sp) == "10:44 AM - February 18, 2024", "space form keeps its time")
 check(value.parse_date("2026-07-01 is a Wednesday").prec == "date", "trailing prose stays a date")
 -- negative durations keep their calendar part and display signed
 local neg = value.arith("-", value.parse_date("2026-01-01"), value.parse_date("2026-01-02"))
@@ -163,7 +163,7 @@ check(value.typeof(value.arith("/", 1, 0)) == "null", "div by zero -> null")
 check(value.truthy("") == false and value.truthy(value.array({})) == false, "empty falsy")
 check(value.compare_op("=", value.NULL, value.NULL) == true, "null = null")
 check(value.compare_op("=", value.NULL, 1) == false, "null = x false")
-check(value.typeof(value.compare_op("<", value.NULL, 1)) == "null", "null < x -> null")
+check(value.compare_op("<", value.NULL, 1) == true, "null sorts before non-null values")
 check(value.cmp(1, "a") == -1, "type rank number < string")
 check(value.cmp(value.array({ 1, 2 }), value.array({ 1, 3 })) == -1, "array elementwise")
 
@@ -171,7 +171,7 @@ check(value.cmp(value.array({ 1, 2 }), value.array({ 1, 3 })) == -1, "array elem
 group = "functions"
 local F = functions.registry
 local env = { funcs = F, now = NOW }
-check(F.contains(env, { "Hello World", "world" }) == true, "contains string ci")
+check(F.contains(env, { "Hello World", "world" }) == false, "contains string case-sensitive")
 check(F.contains(env, { value.array({ 1, 2 }), 2 }) == true, "contains array")
 check(F.econtains(env, { "Hello", "hello" }) == false, "econtains case-sensitive")
 check(F.length(env, { value.array({ 1, 2, 3 }) }) == 3, "length")
@@ -184,7 +184,7 @@ check(F.sum(env, { value.array({ 1, 2, 3 }) }) == 6, "sum")
 check(F.min(env, { 3, 1, 2 }) == 1 and F.max(env, { 3, 1, 2 }) == 3, "min/max varargs")
 check(value.eq(F.sort(env, { value.array({ 3, 1, 2 }) }), value.array({ 1, 2, 3 })), "sort")
 check(value.eq(F.unique(env, { value.array({ 1, 1, 2 }) }), value.array({ 1, 2 })), "unique")
-check(F.regexmatch(env, { "abc123", "\\d+" }) == true, "regexmatch shim")
+check(F.regextest(env, { "\\d+", "abc123" }) == true, "regextest substring")
 check(F.regexreplace(env, { "a1b2", "\\d", "_" }) == "a_b_", "regexreplace")
 check(F.lower(env, { "ABC" }) == "abc", "lower")
 check(value.eq(F.lower(env, { value.array({ "A", "B" }) }), value.array({ "a", "b" })), "vectorized lower")
@@ -239,7 +239,7 @@ check(pg.file.tasks[1].fullyCompleted == false, "parent not fullyCompleted (unch
 check(pg.file.tasks[3].fullyCompleted == true, "leaf completed")
 check(#pg.file.tasks[1].children == 1, "indent nesting")
 check(pg.file.tasks[1].section.display == "Tasks", "section from headers index")
-check(pg.file.tasks[1].line == 10, "cache line passed through 1-indexed")
+check(pg.file.tasks[1].line == 9, "task line follows Dataview zero-based indexing")
 check(value.eq(pg.file.tasks[1].tags, value.array({ "#lab" })), "task tags")
 check(value.typeof(pg.file.tasks[1].due) == "date" and pg.file.tasks[1].due.day == 15, "task [due::] field")
 check(value.typeof(pg.file.tasks[3].due) == "date" and pg.file.tasks[3].due.day == 30, "task emoji due")
@@ -320,6 +320,7 @@ check(res.ok and #res.data.months == 2 and res.data.months[1].month == 7, "expli
 
 res = run('CALENDAR FROM "Papers"')
 check(res.ok and #res.data.months == 0 and #res.data.dated == 0, "dateless rows dropped")
+check(res.data.undated > 0, "dateless rows counted")
 
 local dv_render = require("obsidian-query.dataview.render")
 local function flatten(lines)
@@ -335,18 +336,26 @@ local function flatten(lines)
 end
 -- one month at a time, opening on "today" (NOW = 2026-07-28)
 local flat = flatten(dv_render.calendar_lines(run("CALENDAR").data))
+local undated_flat = flatten(dv_render.calendar_lines(run('CALENDAR FROM "Papers"').data))
+check(undated_flat[#undated_flat]:find("without a date"), "undated rows reported under the grid")
+local journal = run('CALENDAR FROM "Journal"').data
+local journal_flat = flatten(dv_render.calendar_lines(journal))
+check(
+  journal.undated == 0 and not journal_flat[#journal_flat]:find("without a date"),
+  "all-dated calendar has no warning"
+)
 check(flat[1]:find("‹") and flat[1]:find("July 2026") and flat[1]:find("›$"), "grid header with arrows")
 -- header spans the grid ("▏ " + 7 day cells) so the arrows sit still
 check(vim.fn.strdisplaywidth(flat[1]) == 2 + 21, "header spans the grid width")
 check(flat[2]:find("Mo Tu We"), "weekday row")
 check(flat[3]:find("1•"), "day 1 marked (2026-07-01 is a Wednesday)")
-check(flat[#flat]:find("2 this month · 2 dated notes"), "month + total tail")
+check(journal_flat[#journal_flat]:find("2 this month · 2 dated notes"), "month + total tail")
 for _, l in ipairs(flat) do
   check(not l:find("August") and not l:find("June"), "only the current month rendered")
 end
 
 -- <Left>/<Right> shift the view; months without notes still render
-local next_month = flatten(dv_render.calendar_lines(run("CALENDAR").data, 1))
+local next_month = flatten(dv_render.calendar_lines(journal, 1))
 check(next_month[1]:find("August 2026"), "view +1 -> next month")
 check(next_month[#next_month]:find("0 this month"), "empty month renders with no dots")
 check(flatten(dv_render.calendar_lines(run("CALENDAR").data, -13))[1]:find("June 2025"), "view -13 wraps the year")
@@ -556,33 +565,33 @@ check(pe("1 +") == nil, "truncated expr rejected")
 local ienv = { page = pg, this = pg, funcs = F, now = NOW }
 check(eval.expr(pe("this.file.name"), ienv) == "2026-07-01", "this in inline env")
 check(value.to_display(eval.expr(pe("length(file.tasks)"), ienv)) == "3", "inline call display")
-check(value.to_display(eval.expr(pe("missing.field"), ienv)) == "", "null displays empty (no mark)")
+check(value.to_display(eval.expr(pe("missing.field"), ienv)) == "-", "null uses default rendering")
 
 ---------------------------------------------------------------- durations
 group = "durations"
 local jan31 = value.parse_date("2026-01-31")
 local plus1mo = value.arith("+", jan31, value.parse_dur("1 month"))
-check(value.to_display(plus1mo) == "2026-02-28", "month shift clamps day")
+check(value.to_display(plus1mo) == "February 28, 2026", "month shift clamps day")
 check(
-  value.to_display(value.arith("+", value.parse_date("2024-02-29"), value.parse_dur("1 year"))) == "2025-02-28",
+  value.to_display(value.arith("+", value.parse_date("2024-02-29"), value.parse_dur("1 year"))) == "February 28, 2025",
   "year shift clamps leap day"
 )
 check(value.parse_dur("1 mo").months == 1 and value.parse_dur("2 years").months == 24, "symbolic months")
 check(value.to_display(value.parse_dur("14 months, 3 days")) == "1 year, 2 months, 3 days", "hybrid display")
 check(value.cmp(value.parse_dur("1 month"), value.parse_dur("29 days")) == 1, "approx ordering")
 check(
-  value.to_display(value.arith("-", value.parse_date("2026-03-31"), value.parse_dur("1 month"))) == "2026-02-28",
+  value.to_display(value.arith("-", value.parse_date("2026-03-31"), value.parse_dur("1 month"))) == "February 28, 2026",
   "month subtraction clamps"
 )
 
 ---------------------------------------------------------------- regex
 group = "regex"
-check(F.regexmatch(env, { "foo", "foo|bar" }) == true, "alternation")
-check(F.regexmatch(env, { "foobar", "foo(?=bar)" }) == true, "lookahead")
-check(F.regexmatch(env, { "foobaz", "foo(?=bar)" }) == false, "negative lookahead miss")
-check(F.regexmatch(env, { "xbar", "(?<=x)bar" }) == true, "lookbehind")
+check(F.regextest(env, { "foo|bar", "foo" }) == true, "alternation")
+check(F.regextest(env, { "foo(?=bar)", "foobar" }) == true, "lookahead")
+check(F.regextest(env, { "foo(?=bar)", "foobaz" }) == false, "negative lookahead miss")
+check(F.regextest(env, { "(?<=x)bar", "xbar" }) == true, "lookbehind")
 check(F.regexreplace(env, { "john smith", "(\\w+) (\\w+)", "$2 $1" }) == "smith john", "backref replace")
-check(F.regexmatch(env, { "a@b.com", "\\w+@\\w+" }) == true, "literal @")
+check(F.regextest(env, { "\\w+@\\w+", "a@b.com" }) == true, "literal @")
 
 ---------------------------------------------------------------- formats
 group = "formats"
@@ -716,6 +725,26 @@ dv_engine.pick({}, {}, {
 })
 check(toggle(picked) == true and vim.fn.readfile(task_path)[1] == "- [x] original", "picker persists completion")
 check(toggle(picked) == false and vim.fn.readfile(task_path)[1] == "- [ ] original", "picker persists reopening")
+picked.settings =
+  vim.tbl_extend("force", require("obsidian-query.dataview.settings").defaults, { recursiveSubTaskCompletion = true })
+picked.task = { children = { { line = 2, text = "other", children = {} } } }
+check(
+  toggle(picked) == true and vim.fn.readfile(task_path)[2] == "- [x] other",
+  "recursive completion changes subtasks"
+)
+check(
+  toggle(picked) == false and vim.fn.readfile(task_path)[2] == "- [ ] other",
+  "recursive reopening changes subtasks"
+)
+picked.settings.taskCompletionTracking = true
+check(
+  toggle(picked) == true and vim.fn.readfile(task_path)[2]:find("completion::", 1, true),
+  "recursive tracking adds dates"
+)
+check(
+  toggle(picked) == false and vim.fn.readfile(task_path)[2] == "- [ ] other",
+  "recursive tracking can reopen updated child text"
+)
 local task_buf = vim.fn.bufnr(task_path)
 vim.api.nvim_buf_set_lines(task_buf, 0, 0, false, { "- [ ] inserted" })
 check(toggle(picked) == nil and warning ~= nil, "stale picker warns instead of toggling another task")
@@ -756,10 +785,26 @@ check(
 )
 vim.fn.writefile({ "- other" }, index_path)
 rows[index_path].stat.mtime_nsec = 2
+idx_mod.invalidate()
 idx_mod.get({ root = index_root }, function(result)
   indexed = result
 end)
 check(indexed.sup[index_path].lists[1].text == "other", "same-second edit refreshes supplement")
+local shared_index
+idx_mod.get({ root = index_root }, function(result)
+  shared_index = result
+end)
+check(shared_index == indexed, "index shared within an invalidation generation")
+local sharedctx = { index = indexed.rows, pages = indexed.pages, root = index_root, sup = indexed.sup }
+local firstpage = page_mod.get(index_path, sharedctx)
+check(page_mod.get(index_path, sharedctx) == firstpage, "pages shared within generation")
+local cached_result = query.run("LIST", sharedctx)
+check(cached_result.ok and sharedctx.pages[index_path] == firstpage, "query reuses existing page")
+idx_mod.invalidate()
+idx_mod.get({ root = index_root }, function(result)
+  shared_index = result
+end)
+check(shared_index ~= indexed and shared_index.pages[index_path] == nil, "invalidation replaces page generation")
 local spage = page_mod.build(index_path, rows[index_path], { root = index_root })
 check(spage.file.size == 12 and spage.file.mtime.ts == 10, "page reads nested stat (size, mtime)")
 -- relative markdown links resolve against the linking note's folder first
@@ -783,6 +828,13 @@ check(
     and out_res.data.groups[1].items[1].path == rel_root .. "/sub/peer.md",
   "outgoing() resolves relative markdown targets"
 )
+local resolve = idx_mod.make_resolver(rows)
+check(resolve("missing", rel_root) == nil, "missing link name stays unresolved")
+check(resolve("sub/peer", rel_root) == rel_root .. "/sub/peer.md", "resolver accepts vault relative paths")
+check(
+  resolve("peer.md", rel_root, rel_root .. "/sub/source.md", true) == rel_root .. "/sub/peer.md",
+  "resolver accepts source relative paths"
+)
 package.loaded["obsidian.cache"], _G.Obsidian = saved_cache, saved_obsidian
 vim.fn.delete(index_path)
 
@@ -793,7 +845,7 @@ local tomorrow = ev("date(tomorrow)")
 check(tomorrow.hour == 0 and tomorrow.day == 29, "date(tomorrow) is next local midnight")
 check(ev("date(eom)").day == 31 and ev("date(eom)").hour == 0, "date(eom) is the month's last midnight")
 check(
-  ev('length(unique([1, 1, "1", date(2026-07-01), date(2026-07-01), [[a]], [[A]], [1], [1]]))') == 5,
+  ev('length(unique([1, 1, "1", date(2026-07-01), date(2026-07-01), [[a]], [[A]], [1], [1]]))') == 6,
   "unique() dedupes scalars, dates, links and arrays"
 )
 check(F.regexreplace(env, { '"foo"', "\\b(foo)", "$1" }) == '"foo"', "\\b adds no capture group")
@@ -812,6 +864,374 @@ res = run("LIST WITHOUT ID file.name GROUP BY status")
 check(res.ok and res.data.groups[1].items[1].link == nil, "grouped LIST honours WITHOUT ID")
 res = run('TABLE length(rows) GROUP BY choice(priority = 1, ["a, b"], ["a", "b"])')
 check(res.ok and #res.data.rows == 2, "GROUP BY splits values that merely display alike")
+
+do
+  group = "link dereference"
+  local deref = run('TABLE [[2026-07-10]].status, file.inlinks.status FROM "Journal/2026-07-01"')
+  check(deref.ok and deref.data.rows[1].cells[1] == "done", "link literal dereferences to page")
+  check(deref.data.rows[1].cells[2][1] == "done", "inlinks swizzle dereferences pages")
+  deref = run("TABLE rows.file.link.status GROUP BY status")
+  check(deref.ok and deref.data.rows[1].cells[1][1] ~= value.NULL, "grouped rows swizzle dereferences links")
+  deref = run("TABLE [[missing]].status, [[2026-07-10]].path LIMIT 1")
+  check(
+    deref.ok and deref.data.rows[1].cells[1] == value.NULL and deref.data.rows[1].cells[2] == value.NULL,
+    "missing pages and link metadata index return null"
+  )
+  local projectctx = vim.deepcopy(CTX)
+  projectctx.index[ROOT .. "/Papers/reading.md"].properties.project = "[[2026-07-10]]"
+  deref = query.run('TABLE project.status FROM "Papers"', projectctx)
+  check(deref.ok and deref.data.rows[1].cells[1] == "done", "frontmatter link dereference")
+
+  group = "link identity"
+  local identctx = vim.deepcopy(CTX)
+  identctx.this_path = ROOT .. "/Journal/2026-07-01.md"
+  identctx.index[ROOT .. "/Papers/reading.md"].properties.project = "[[2026-07-01]]"
+  local identity = query.run(
+    'TABLE contains(file.outlinks, this.file.link), project = this.file.link, [[2026-07-01]] = this.file.link, link("2026-07-01") = this.file.link FROM "Papers"',
+    identctx
+  )
+  for _, cell in ipairs(identity.data.rows[1].cells) do
+    check(cell == true, "outlinks, frontmatter, literals and link() use resolved paths")
+  end
+  local sublink = value.link("Folder/Note#Heading")
+  check(
+    sublink.path == "Folder/Note" and sublink.subpath == "Heading" and sublink.kind == "header",
+    "link subpaths are separate from identity path"
+  )
+  local unresolved = query.run('TABLE link("missing"), [[missing]] LIMIT 1', vim.tbl_extend("force", {}, CTX))
+  check(
+    unresolved.data.rows[1].cells[1].path == "missing" and unresolved.data.rows[1].cells[2].path == "missing",
+    "unresolved links retain their paths"
+  )
+
+  group = "missing functions"
+  check(ev('icontains(["Hello", ["World"]], "WORLD")') == true, "icontains recurses and ignores case")
+  check(value.eq(ev('icontains("Alpha", ["AL", "z"])'), value.array({ true, false })), "icontains vectorizes needles")
+  check(ev("product([2, 3, 4])") == 24 and ev("product([])") == value.NULL, "product values and empty array")
+  check(ev('reduce([10, 2, 3], "-")') == 5, "reduce folds operators left to right")
+  check(ev("reduce([2, null, 3], (a, b) => a * b)") == 6, "reduce lambda skips nulls")
+  check(ev('reduce([true, false], "&")') == false, "reduce boolean operators")
+  check(value.eq(ev("ldefault([null, 1], 2)"), value.array({ value.NULL, 1 })), "ldefault preserves arrays")
+  check(ev("ldefault(null, false)") == false, "ldefault preserves false fallback")
+  check(ev("firstvalue([null, false, 3])") == false and ev("firstvalue([])") == value.NULL, "firstvalue keeps false")
+  check(
+    ev('display([null, "**bold**", [[Folder/Note|Label]]])') == ", bold, Label",
+    "display strips markdown and uses link display"
+  )
+
+  group = "settings"
+  local settings_mod = require("obsidian-query.dataview.settings")
+  local settings_root = vim.fn.tempname()
+  check(settings_mod.get(settings_root).defaultDateFormat == "MMMM dd, yyyy", "missing settings use Dataview defaults")
+  vim.fn.mkdir(settings_root .. "/.obsidian/plugins/dataview", "p")
+  local settings_path = settings_root .. "/.obsidian/plugins/dataview/data.json"
+  vim.fn.writefile({ '{"showResultCount":false,"tableIdColumnName":"Note","inlineQueryPrefix":"?"}' }, settings_path)
+  local custom_settings = settings_mod.get(settings_root)
+  check(not custom_settings.showResultCount and custom_settings.inlineQueryPrefix == "?", "vault settings read")
+  check(
+    custom_settings.warnOnEmptyResult and custom_settings.renderNullAs == "\\-",
+    "missing settings keys retain defaults"
+  )
+  check(settings_mod.get(settings_root) == custom_settings, "settings cached by timestamp")
+  local custom_query = query.run("TABLE file.name", { index = INDEX, root = settings_root })
+  check(custom_query.data.columns[1] == "Note", "custom table ID column name")
+  vim.fn.writefile({ '{"renderNullAs":"none"}' }, settings_path)
+  check(settings_mod.get(settings_root).renderNullAs == "none", "settings cache refreshed after edit")
+  vim.fn.writefile({ "broken json" }, settings_path)
+  check(settings_mod.get(settings_root).showResultCount, "malformed settings use defaults")
+  local tracking =
+    vim.tbl_extend("force", settings_mod.defaults, { taskCompletionTracking = true, taskCompletionText = "done" })
+  local tracked = dv_engine.toggle_task_line("- [ ] work ^block", nil, tracking)
+  check(tracked == "- [x] work [done:: " .. os.date("%Y-%m-%d") .. "] ^block", "completion field before block ID")
+  check(dv_engine.toggle_task_line(tracked, nil, tracking) == "- [ ] work ^block", "reopening removes completion field")
+  tracking.taskCompletionUseEmojiShorthand = true
+  tracked = dv_engine.toggle_task_line("- [ ] work", nil, tracking)
+  check(tracked == "- [x] work ✅ " .. os.date("%Y-%m-%d"), "emoji completion date")
+  check(dv_engine.toggle_task_line(tracked, nil, tracking) == "- [ ] work", "reopening removes emoji completion")
+  vim.fn.delete(settings_root, "rf")
+
+  group = "render parity"
+  local rendered_table = flatten(dv_render.lines(run("TABLE status")))
+  check(rendered_table[2]:find("File (3)", 1, true) ~= nil, "table result count in first header")
+  local rendered_noid = flatten(dv_render.lines(run("TABLE WITHOUT ID status")))
+  check(rendered_noid[2]:find("status (3)", 1, true) ~= nil, "WITHOUT ID still counts first column")
+  for _, kind in ipairs({ "TABLE status", "LIST", "TASK" }) do
+    local empty = run(kind .. " FROM #missing")
+    check(
+      table.concat(flatten(dv_render.lines(empty))):find("Dataview: No results to show", 1, true) ~= nil,
+      "empty warning for " .. kind
+    )
+    empty.data.settings = vim.tbl_extend("force", empty.data.settings, { warnOnEmptyResult = false })
+    check(
+      not table.concat(flatten(dv_render.lines(empty))):find("No results", 1, true),
+      "empty warning can be disabled"
+    )
+  end
+  local grouped_list = run("LIST length(rows) GROUP BY status")
+  check(#grouped_list.data.groups == 1 and #grouped_list.data.groups[1].items == 2, "grouped LIST projects group rows")
+  check(grouped_list.data.groups[1].items[1].text == 2, "grouped LIST evaluates length(rows) on group")
+  local grouped_false = run("LIST GROUP BY priority = 1")
+  check(grouped_false.data.groups[1].items[1].link == false, "grouped LIST preserves false key")
+  local grouped_table = run("TABLE length(rows) GROUP BY status")
+  check(grouped_table.data.columns[1] == "status", "grouped table header is group expression")
+  local task_lines = flatten(dv_render.lines(run('TASK FROM "Journal" WHERE !completed')))
+  check(
+    #task_lines == 2 and task_lines[2]:find("sub uno", 1, true),
+    "TASK includes selected parent's children with no file header"
+  )
+  local all_task_lines = flatten(dv_render.lines(run('TASK FROM "Journal"')))
+  check(#all_task_lines == 3, "TASK children rendered once")
+  local group_task_lines = flatten(dv_render.lines(run('TASK FROM "Journal" GROUP BY completed')))
+  check(group_task_lines[1]:find("false (1)", 1, true), "task groups have counts")
+  check(value.to_display(value.parse_date("2026-07-01T00:00")) == "July 01, 2026", "midnight datetime uses date format")
+  local fmt_settings = vim.tbl_extend(
+    "force",
+    require("obsidian-query.dataview.settings").defaults,
+    { defaultDateFormat = "dd/MM/yyyy", renderNullAs = "none" }
+  )
+  check(
+    value.to_display(value.parse_date("2026-07-01"), fmt_settings) == "01/07/2026"
+      and value.to_display(value.NULL, fmt_settings) == "none",
+    "custom rendering settings"
+  )
+  check(
+    value.to_display(value.link("Folder/image.png#Header")) == "image.png > Header",
+    "link display preserves attachment extensions and subpaths"
+  )
+
+  group = "unsaved this"
+  local unsavedbuf = vim.api.nvim_create_buf(true, false)
+  local unsavedpath = ROOT .. "/Journal/2026-07-01.md"
+  vim.api.nvim_buf_set_name(unsavedbuf, unsavedpath)
+  vim.api.nvim_buf_set_lines(
+    unsavedbuf,
+    0,
+    -1,
+    false,
+    { "---", "status: draft", "---", "session-goal:: unsaved", "- [ ] changed" }
+  )
+  local unsavedidx = { rows = INDEX, sup = SUP, inlinks = INLINKS, pages = {} }
+  local unsavedpage = idx_mod.this_page(unsavedidx, unsavedbuf, ROOT)
+  check(
+    unsavedpage.status == "draft" and unsavedpage["session-goal"] == "unsaved",
+    "unsaved frontmatter and inline fields"
+  )
+  check(unsavedpage.file.tasks[1].text == "changed", "unsaved tasks")
+  check(idx_mod.this_page(unsavedidx, unsavedbuf, ROOT) == unsavedpage, "buffer page cached by changedtick")
+  local unsavedresult = query.run(
+    'TABLE this.status, status FROM "Journal/2026-07-01"',
+    vim.tbl_extend("force", {}, CTX, { this = unsavedpage, this_path = unsavedpath })
+  )
+  check(
+    unsavedresult.data.rows[1].cells[1] == "draft" and unsavedresult.data.rows[1].cells[2] == "open",
+    "only this sees unsaved content"
+  )
+  vim.api.nvim_buf_set_lines(unsavedbuf, 1, 2, false, { "status: revised" })
+  check(idx_mod.this_page(unsavedidx, unsavedbuf, ROOT).status == "revised", "buffer page refreshes after edit")
+  vim.bo[unsavedbuf].modified = false
+  check(idx_mod.this_page(unsavedidx, unsavedbuf, ROOT).status == "open", "unmodified buffers use saved page")
+  vim.api.nvim_buf_delete(unsavedbuf, { force = true })
+
+  do
+    group = "property completion"
+    local core = require("obsidian-query")
+    local saved_root, saved_gen = core.buf_root, core.generation
+    local saved_cache, saved_types = package.loaded["obsidian.cache"], package.loaded["blink.cmp.types"]
+    core.buf_root = function()
+      return ROOT
+    end
+    core.generation = function()
+      return 999
+    end
+    package.loaded["obsidian.cache"] = {
+      is_enabled = function()
+        return true
+      end,
+      is_ready = function()
+        return true
+      end,
+      notes = {
+        all = function()
+          return INDEX
+        end,
+      },
+    }
+    package.loaded["blink.cmp.types"] = { CompletionItemKind = { Value = 12 } }
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "```dataview", "LIST" })
+    local source = require("obsidian-query.blink").new()
+    for _, prefix in ipairs({
+      'WHERE status = "',
+      'WHERE status != "',
+      'WHERE contains(status, "',
+      'FROM "Journal" WHERE status = "d',
+      "WHERE icontains(status, '",
+    }) do
+      local completion
+      source:get_completions({ bufnr = buf, cursor = { 2, #prefix }, line = prefix }, function(result)
+        completion = result
+      end)
+      check(
+        #completion.items == 2 and completion.items[1].label == "done" and completion.items[2].label == "open",
+        "property values for " .. prefix
+      )
+      check(
+        completion.items[1].textEdit.range["end"].character == #prefix,
+        "value completion replaces current string content"
+      )
+    end
+    local completion
+    local prefix = 'FROM "'
+    source:get_completions({ bufnr = buf, cursor = { 2, #prefix }, line = prefix }, function(result)
+      completion = result
+    end)
+    check(#completion.items == 2 and completion.items[1].label == "Journal", "FROM still completes folders")
+    vim.api.nvim_buf_delete(buf, { force = true })
+    core.buf_root, core.generation = saved_root, saved_gen
+    package.loaded["obsidian.cache"], package.loaded["blink.cmp.types"] = saved_cache, saved_types
+  end
+
+  group = "wide rendering"
+  local wide = require("obsidian-query.render").clip(string.rep("界", 30), 40)
+  check(vim.fn.strdisplaywidth(wide) <= 40 and wide:sub(-3) == "…", "clip counts display columns for wide characters")
+  local wide_table =
+    dv_render.table_lines({ columns = { "text" }, with_id = false, rows = { { cells = { string.rep("界", 30) } } } })
+  check(#wide_table == 5, "wide table cell renders without negative padding")
+
+  do
+    group = "sparse cache health"
+    local saved_cache, saved_ob = package.loaded["obsidian.cache"], _G.Obsidian
+    _G.Obsidian = nil
+    package.loaded["obsidian.cache"] = {
+      is_enabled = function()
+        return true
+      end,
+      is_ready = function()
+        return true
+      end,
+      notes = {
+        count = function()
+          return 1
+        end,
+        all = function()
+          return { ["/v/a.md"] = { stat = {} } }
+        end,
+      },
+    }
+    local saved, errors = {}, {}
+    for _, method in ipairs({ "start", "ok", "warn", "error" }) do
+      saved[method] = vim.health[method]
+      vim.health[method] = function(msg)
+        if method == "error" then
+          errors[#errors + 1] = msg
+        end
+      end
+    end
+    require("obsidian-query.health").check()
+    check(not table.concat(errors):find("cache row", 1, true), "health accepts omitted optional tags and properties")
+    local saved_add = vim.treesitter.language.add
+    vim.treesitter.language.add = function(language)
+      if language == "markdown_inline" then
+        error("missing parser")
+      end
+      return true
+    end
+    require("obsidian-query.health").check()
+    check(
+      table.concat(errors):find("markdown_inline parser missing", 1, true),
+      "health checks inline expression parser"
+    )
+    vim.treesitter.language.add = saved_add
+    for method, fn in pairs(saved) do
+      vim.health[method] = fn
+    end
+    package.loaded["obsidian.cache"], _G.Obsidian = saved_cache, saved_ob
+  end
+
+  group = "link immutability"
+  local original_link = value.link("Note.md", { subpath = "H", kind = "header", display = "original" })
+  local relabeled = F.link(env, { original_link, "changed" })
+  check(
+    relabeled.display == "changed" and original_link.display == "original",
+    "link() display override leaves shared link unchanged"
+  )
+  check(relabeled.kind == "header" and relabeled.subpath == "H", "link() display override preserves link metadata")
+
+  group = "predicate parity"
+  check(ev('contains(["hello", ["world"]], "world")') == true, "contains recurses into nested arrays")
+  check(
+    ev('contains("Hello", "hello")') == false and ev('icontains("Hello", "hello")') == true,
+    "contains and icontains differ in case"
+  )
+  check(ev("contains(3, 3)") == true and ev("econtains(null, null)") == true, "contains scalar equality")
+  check(value.eq(ev('contains("hello", ["he", "z"])'), value.array({ true, false })), "contains vectorizes needles")
+  check(
+    value.eq(ev("default([null, 1, 2], [3, 4])"), value.array({ 3, 1 })),
+    "default zips vectorized arguments to shortest array"
+  )
+  check(
+    value.eq(ev('startswith(["abc", "xyz"], ["a", "q"])'), value.array({ true, false })),
+    "string functions zip arguments"
+  )
+  check(value.eq(ev("choice([true, false], 1, 2)"), value.array({ 1, 2 })), "choice vectorizes predicate")
+
+  group = "regex parity"
+  check(ev('regexmatch("[a-z]+", "alpha")') == true, "regexmatch takes pattern first")
+  check(ev('regexmatch("[a-z]+", "alpha1")') == false, "regexmatch anchors unanchored patterns")
+  check(ev('regextest("[a-z]+", "alpha1")') == true, "regextest permits partial match")
+  check(ev('regexmatch(null, "text")') == false, "regex null input is false")
+
+  group = "value parity"
+  check(ev("[10, 20][0]") == 10 and ev("[10, 20][1]") == 20, "DQL array indexing is zero-based")
+  check(ev("[10][-1]") == value.NULL and ev("[10][1]") == value.NULL, "array indexing rejects out-of-bounds values")
+  check(ev('"abc"[1]') == "b", "DQL string indexing")
+  check(
+    value.cmp(value.array({}), false) < 0 and value.cmp(value.date(0), 1) < 0,
+    "cross-type order uses Dataview type names"
+  )
+  check(not value.eq(value.link("missing"), value.link("MISSING")), "unresolved links are case-sensitive")
+  check(not value.eq(value.link("a#H"), value.link("a#^H")), "header and block links have different identities")
+
+  group = "group order"
+  local ordered_groups = run("TABLE status, length(rows) GROUP BY status")
+  check(
+    ordered_groups.data.rows[1].id == "done" and ordered_groups.data.rows[2].id == "open",
+    "GROUP BY sorts keys ascending"
+  )
+  check(ordered_groups.data.rows[1].cells[1] == "done", "GROUP BY exposes unaliased expression name")
+
+  group = "collection functions"
+  check(ev('reverse("café")') == "éfac", "reverse preserves UTF-8 string characters")
+  check(value.eq(ev("slice([1, 2, 3, 4], -3, -1)"), value.array({ 2, 3 })), "slice supports negative bounds")
+  check(value.eq(ev("nonnull(null, 2, false)"), value.array({ 2, false })), "nonnull accepts varargs")
+  check(ev("any(false, true)") == true and ev("all(true, false)") == false, "boolean aggregates accept varargs")
+  check(ev("sum([1, null, 2])") == value.NULL, "sum does not reset accumulation after null")
+  check(ev("average(4)") == 4 and ev("average([])") == value.NULL, "average scalar and empty array")
+  check(
+    ev('extract([[2026-07-10]], "status").status') == value.NULL,
+    "unresolved extract without resolver returns null"
+  )
+  local extracted = run('TABLE extract([[2026-07-10]], "status") LIMIT 1')
+  check(extracted.data.rows[1].cells[1].status == "done", "extract dereferences links")
+  check(ev("meta(embed([[x]])).embed") == true, "embed sets link metadata")
+  check(ev("minby([1, 2], (x) => null)") == 1, "minby keeps first element when all keys null")
+  check(ev("maxby([false, true], (x) => null)") == false, "maxby preserves false first element")
+
+  group = "resolver ambiguity"
+  local resolver_rows =
+    { ["/v/A/Note.md"] = {}, ["/v/B/Note.md"] = {}, ["/v/Note.md"] = {}, ["/v/Deep/Folder/Other.md"] = {} }
+  local resolver = idx_mod.make_resolver(resolver_rows)
+  check(resolver("Note", "/v", "/v/B/source.md") == "/v/Note.md", "vault exact path wins for wiki links")
+  check(
+    resolver("Note.md", "/v", "/v/B/source.md", true) == "/v/B/Note.md",
+    "markdown targets resolve relative to source"
+  )
+  check(resolver("Folder/Other", "/v") == "/v/Deep/Folder/Other.md", "partial folder suffix resolves")
+  check(resolver("Missing/Other", "/v") == nil, "missing folder does not resolve by basename alone")
+  check(resolver("/Missing/Note", "/v") == nil, "absolute vault link cannot fall back to basename")
+  check(resolver("deep/folder/other", "/v") == "/v/Deep/Folder/Other.md", "path lookup ignores case")
+  check(resolver("", "/v", "/v/B/Note.md") == "/v/B/Note.md", "empty link resolves containing note")
+end
 
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"
@@ -917,7 +1337,7 @@ do
   local function draw()
     local marks = core.parse({ buf = note })
     local lines = marks[1].opts.virt_lines
-    count = lines[#lines][2][1]
+    count = table.concat(flatten(lines), "\n")
   end
   package.loaded["render-markdown.api"] = {
     render = function()
@@ -927,7 +1347,7 @@ do
     end,
   }
   draw()
-  check(count == "1 tasks", "initial remaining task count")
+  check(count:find("align #lab", 1, true) ~= nil, "initial remaining task count")
   local picker_buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_set_current_buf(picker_buf)
   rows[ROOT .. "/Journal/2026-07-01.md"].tasks[1].state = "x"
@@ -935,11 +1355,11 @@ do
   vim.wait(20, function()
     return false
   end)
-  check(count == "1 tasks", "refresh skipped while picker was open")
+  check(count:find("align #lab", 1, true) ~= nil, "refresh skipped while picker was open")
   vim.api.nvim_set_current_buf(note)
   check(
     vim.wait(200, function()
-      return count == "0 tasks"
+      return count:find("No results to show for task query", 1, true) ~= nil
     end),
     "closing picker refreshes remaining count"
   )
@@ -960,6 +1380,20 @@ do
   local before = fetches
   draw()
   check(fetches == before + 1, "a fence gone from the buffer releases its cache entry")
+  body.text = "  LIST\nWHERE )"
+  vim.api.nvim_buf_set_lines(note, 0, -1, false, { "```dataview", "  LIST", "WHERE )", "```" })
+  draw()
+  local dns = vim.api.nvim_get_namespaces()["obsidian-query"]
+  local diags = vim.diagnostic.get(note, { namespace = dns })
+  check(#diags == 1 and diags[1].lnum == 2 and diags[1].col == 6, "diagnostic points inside fence at parse error")
+  body.text = "LIST"
+  draw()
+  check(#vim.diagnostic.get(note, { namespace = dns }) == 0, "fixed query clears diagnostic")
+  body.text = "LIST WHERE )"
+  draw()
+  fence_on = false
+  core.parse({ buf = note })
+  check(#vim.diagnostic.get(note, { namespace = dns }) == 0, "removed fence clears diagnostic")
   vim.api.nvim_del_augroup_by_name("obsidian_query_stale")
   vim.api.nvim_buf_delete(picker_buf, { force = true })
   vim.api.nvim_buf_delete(note, { force = true })
@@ -1013,10 +1447,412 @@ do
   inline.invalidate() -- workspace switch: obsidian.nvim drops the queued callback
   parse()
   check(calls == 3, "a request stranded by a cache reset is retried")
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "---", "status: draft", "---", "x `= this.status` y" })
+  pending_cb({ rows = INDEX, sup = SUP, inlinks = INLINKS })
+  marks = parse()
+  check(#marks == 1 and marks[1].opts.virt_text[1][1] == "draft", "inline this reflects unsaved frontmatter")
   inline.invalidate()
   vim.api.nvim_buf_delete(buf, { force = true })
   core.buf_root, idx_mod.get, base.retry = saved_root, saved_get, saved_retry
   package.loaded["render-markdown.api"] = saved_rm
+end
+
+do
+  group = "shared index races"
+  local saved_cache, saved_ob = package.loaded["obsidian.cache"], _G.Obsidian
+  _G.Obsidian = nil
+  local ready, requests = nil, 0
+  package.loaded["obsidian.cache"] = {
+    is_enabled = function()
+      return true
+    end,
+    when_ready = function(cb)
+      requests = requests + 1
+      ready = cb
+    end,
+    notes = {
+      all = function()
+        return {}
+      end,
+    },
+  }
+  idx_mod.invalidate()
+  local first, second
+  idx_mod.get({ root = "/race" }, function(result)
+    first = result
+  end)
+  idx_mod.get({ root = "/race" }, function(result)
+    second = result
+  end)
+  check(requests == 1, "concurrent fences coalesce one index request")
+  ready()
+  check(first ~= nil and first == second, "concurrent fences share completed index")
+  idx_mod.invalidate()
+  local obsolete, transient
+  idx_mod.get({ root = "/race" }, function(result, _, retry)
+    obsolete, transient = result, retry
+  end)
+  idx_mod.invalidate()
+  ready()
+  check(obsolete == nil and transient == true, "invalidation rejects queued old generation")
+  idx_mod.get({ root = "/race" }, function(result)
+    first = result
+  end)
+  _G.Obsidian = { dir = "/other" }
+  ready()
+  check(first == nil, "workspace switch while waiting cannot publish another vault's index")
+  idx_mod.invalidate()
+  package.loaded["obsidian.cache"], _G.Obsidian = saved_cache, saved_ob
+end
+
+do
+  group = "hash parity"
+  check(ev('hash("hello", 0)') == 4625896200565286, "hash matches bundled cyrb53")
+  check(ev('hash("hello", 7)') == 5198064567490728, "hash accepts numeric variant")
+  check(ev('hash("hel", "lo")') == ev('hash("hello", 0)'), "hash concatenates string seed and text")
+  check(ev('hash("café🧪", 0)') == 1515590994826948, "hash uses UTF-16 code units")
+end
+
+do
+  group = "lexical error positions"
+  local _, lexical = parser.parse("LIST\nWHERE @")
+  check(lexical.pos == 12, "lexical errors retain byte position for diagnostics")
+  local _, quoted = parser.parse('LIST "unterminated')
+  check(quoted.pos == 6, "unterminated strings diagnose opening quote")
+end
+
+do
+  group = "typed inline fields"
+  local fields = idx_mod.inline_fields("text [project:: [[Folder/Note|Label]]] (score:: 3)")
+  check(
+    #fields == 2 and fields[1].value == "[[Folder/Note|Label]]",
+    "balanced inline fields preserve nested wiki links"
+  )
+  check(
+    page_mod.decode_inline("3") == 3 and page_mod.decode_inline("false") == false,
+    "inline numbers and booleans are typed"
+  )
+  check(page_mod.decode_inline("") == value.NULL, "empty inline field is null")
+  check(
+    value.eq(page_mod.decode_inline('"one", "two"'), value.array({ "one", "two" })),
+    "typed comma-separated inline array"
+  )
+  local ctx = vim.tbl_extend("force", {}, CTX, {
+    sup = { [ROOT .. "/Papers/reading.md"] = { fields = { project = "[[2026-07-10]]", score = "4" }, headers = {} } },
+  })
+  local typed = query.run('TABLE project.status, score FROM "Papers"', ctx)
+  check(
+    typed.data.rows[1].cells[1] == "done" and typed.data.rows[1].cells[2] == 4,
+    "inline project dereferences with numeric fields"
+  )
+  local task =
+    page_mod.build_tasks("/v/n.md", { { line = 1, text = "[score:: 2] [project:: [[Note]]]" } }, {}, "n.md")[1]
+  check(
+    task.score == 2 and task.project.path == "Note" and not task.checked,
+    "task fields use shared parser and absent status is open"
+  )
+end
+
+do
+  group = "date validation"
+  check(
+    value.parse_date("2026-02-30") == value.NULL and value.parse_date("2026-13-01") == value.NULL,
+    "invalid calendar dates are null"
+  )
+  check(value.parse_date("2026-07-01T25:00") == value.NULL, "invalid times are null")
+  check(page_mod.decode_fm("2026-07-01 16:05") == "2026-07-01 16:05", "space-separated datetime stays text")
+  check(value.typeof(page_mod.decode_fm("2026-07-01T16:05")) == "date", "T-separated datetime is a date")
+  check(page_mod.decode_fm("2026-07-01 prose") == "2026-07-01 prose", "frontmatter date parsing consumes full value")
+  check(
+    value.eq(value.parse_date("2026-07-01T12:30:00Z"), value.parse_date("2026-07-01T06:30:00-06:00")),
+    "timestamp offsets identify same instant"
+  )
+  local millis = value.parse_date("2026-07-01T12:30:00.123Z")
+  check(
+    millis.millisecond == 123 and F.dateformat(env, { millis, "SSS" }) == "123",
+    "fractional seconds survive parsing"
+  )
+  check(
+    value.parse_dur("-2 days").ms == -2 * 86400000 and value.parse_dur("250 ms").ms == 250,
+    "signed durations and milliseconds"
+  )
+  check(value.parse_dur("2 days ago") == value.NULL, "duration parsing rejects trailing prose")
+  check(value.typeof(page_mod.decode_fm("2 days")) == "duration", "frontmatter durations are typed")
+end
+
+do
+  group = "settings refresh"
+  local root = vim.fn.tempname()
+  vim.fn.mkdir(root .. "/.obsidian/plugins/dataview", "p")
+  root = vim.uv.fs_realpath(root)
+  local path = root .. "/.obsidian/plugins/dataview/data.json"
+  local spec = dv_engine.parse("TABLE file.name")
+  local before = dv_engine.key(spec, { root = root })
+  vim.fn.writefile({ '{"showResultCount":false}' }, path)
+  check(dv_engine.key(spec, { root = root }) ~= before, "settings edits invalidate fence result identity")
+  local core, inline = require("obsidian-query"), require("obsidian-query.inline")
+  local saved_root, saved_get, saved_retry = core.buf_root, idx_mod.get, base.retry
+  local saved_rm = package.loaded["render-markdown.api"]
+  package.loaded["render-markdown.api"] = { render = function() end }
+  base.retry = function() end
+  core.buf_root = function()
+    return root
+  end
+  idx_mod.get = function(_, cb)
+    cb({ rows = {}, sup = {}, inlinks = {}, pages = {} })
+  end
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(buf, root .. "/note.md")
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "a `? 2 + 3` b `= 1`" })
+  vim.fn.writefile({ '{"inlineQueryPrefix":"?"}' }, path)
+  inline.invalidate()
+  local function draw()
+    local parser = vim.treesitter.get_parser(buf, "markdown")
+    parser:parse(true)
+    local marks = {}
+    parser:for_each_tree(function(tree, lang)
+      if lang:lang() == "markdown_inline" then
+        marks = inline.parse({ buf = buf, root = tree:root() })
+      end
+    end)
+    return marks
+  end
+  local marks = draw()
+  check(#marks == 1 and marks[1].opts.virt_text[1][1] == "5", "custom inline query prefix is evaluated")
+  vim.fn.writefile({ '{"enableInlineDataview":false}' }, path)
+  check(#draw() == 0, "inline setting disables rendered values")
+  inline.invalidate()
+  vim.api.nvim_buf_delete(buf, { force = true })
+  core.buf_root, idx_mod.get, base.retry = saved_root, saved_get, saved_retry
+  package.loaded["render-markdown.api"] = saved_rm
+  vim.fn.delete(root, "rf")
+end
+
+do
+  group = "unsaved link exclusions"
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(buf, "/v/unsaved.md")
+  local lines = { "[[Visible]]", "```dataview", "LIST [[Hidden]]", "```" }
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  local page = idx_mod.this_page({ rows = {}, sup = {}, inlinks = {} }, buf, "/v")
+  check(#page.file.outlinks == 1 and page.file.outlinks[1].path == "Visible", "unsaved outlinks exclude fenced code")
+  check(page.file.size == #table.concat(lines, "\n") + 1, "unsaved page size follows buffer content")
+  vim.api.nvim_buf_delete(buf, { force = true })
+end
+
+do
+  group = "inline property completion"
+  local core = require("obsidian-query")
+  local saved_root, saved_gen, saved_peek = core.buf_root, core.generation, idx_mod.peek
+  local saved_cache, saved_types = package.loaded["obsidian.cache"], package.loaded["blink.cmp.types"]
+  core.buf_root = function()
+    return ROOT
+  end
+  core.generation = function()
+    return 1000
+  end
+  idx_mod.peek = function()
+    return { sup = { [ROOT .. "/Papers/reading.md"] = { fields = { stage = { "draft", "review" } } } } }
+  end
+  package.loaded["obsidian.cache"] = {
+    is_enabled = function()
+      return true
+    end,
+    is_ready = function()
+      return true
+    end,
+    notes = {
+      all = function()
+        return INDEX
+      end,
+    },
+  }
+  package.loaded["blink.cmp.types"] = { CompletionItemKind = { Value = 12 } }
+  local buf = vim.api.nvim_create_buf(false, true)
+  local lines = { "~~~~dataview" }
+  for _ = 1, 220 do
+    lines[#lines + 1] = ""
+  end
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  local source, completion = require("obsidian-query.blink").new(), nil
+  local prefix = 'WHERE stage = "'
+  source:get_completions({ bufnr = buf, cursor = { 221, #prefix }, line = prefix }, function(r)
+    completion = r
+  end)
+  check(
+    #completion.items == 2 and completion.items[1].label == "draft",
+    "inline property values complete inside long tilde fences"
+  )
+  vim.api.nvim_buf_delete(buf, { force = true })
+  core.buf_root, core.generation, idx_mod.peek = saved_root, saved_gen, saved_peek
+  package.loaded["obsidian.cache"], package.loaded["blink.cmp.types"] = saved_cache, saved_types
+end
+
+do
+  group = "mixed list nesting"
+  local tasks = page_mod.build_tasks("/v/n.md", {
+    { line = 1, indent = 0, text = "parent", state = "x" },
+    { line = 3, indent = 4, text = "nested task", state = " " },
+  }, {}, "n.md")
+  local lists = page_mod.build_lists({
+    headers = {},
+    lists = {
+      { line = 1, indent = 0, text = "[x] parent" },
+      { line = 2, indent = 2, text = "plain" },
+      { line = 3, indent = 4, text = "[ ] nested task" },
+    },
+  }, tasks, "/v/n.md", "n.md")
+  check(
+    lists[2].parent == 0 and lists[2].children[1] == tasks[2],
+    "plain lists participate in parent and child hierarchy"
+  )
+  check(tasks[1].children[1] == lists[2] and not tasks[1].fullyCompleted, "completion folds through plain list parents")
+  local rendered = flatten(dv_render.task_lines({ groups = { { items = tasks } } }))
+  check(#rendered == 3 and rendered[2]:find("• plain", 1, true), "TASK renders plain descendants without checkboxes")
+end
+
+do
+  group = "task metadata parity"
+  check(pg.file.tasks[1].path == "Journal/2026-07-01.md", "task paths are vault relative")
+  check(pg.file.tasks[2].parent == 9 and pg.file.tasks[2].line == 10, "task parent references zero-based line")
+  check(value.typeof(pg.file.frontmatter.due) == "date", "file.frontmatter contains decoded Dataview values")
+end
+
+do
+  group = "workspace boundary"
+  local saved_ob, saved_api = _G.Obsidian, package.loaded["obsidian.api"]
+  _G.Obsidian = { workspace = { root = ROOT } }
+  package.loaded["obsidian.api"] = {
+    find_workspace = function()
+      return nil
+    end,
+  }
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_name(buf, "/outside/note.md")
+  check(require("obsidian-query").buf_root(buf) == nil, "unrecognized file does not inherit active vault")
+  package.loaded["obsidian.api"].find_workspace = function()
+    error("API unavailable")
+  end
+  check(require("obsidian-query").buf_root(buf) == nil, "fallback workspace still enforces vault boundary")
+  vim.api.nvim_buf_delete(buf, { force = true })
+  _G.Obsidian, package.loaded["obsidian.api"] = saved_ob, saved_api
+end
+
+do
+  group = "string function parity"
+  check(
+    value.eq(ev('split("abc", "")'), value.array({ "a", "b", "c" })),
+    "empty regex split omits boundary empty strings"
+  )
+  check(value.eq(ev('split("", "")'), value.array({})), "empty regex splits empty text to no elements")
+  check(
+    ev('padleft("x", 4, "ab")') == "abax" and ev('padright("x", 4, "ab")') == "xaba",
+    "padding truncates repeated pad string"
+  )
+  check(ev('padleft("x", 4, "")') == "x", "empty padding is a no-op")
+  check(
+    ev('substring("abcd", 3, 1)') == "bc" and ev('substring("abcd", -2, 2)') == "ab",
+    "substring swaps and clamps bounds"
+  )
+  check(ev('truncate("abcdef", 5)') == "ab...", "truncate uses Dataview default suffix")
+  check(value.eq(ev('split("a,b;c", "[,;]")'), value.array({ "a", "b", "c" })), "split uses regex delimiters")
+  check(value.eq(ev('split("a,b,c", ",", 2)'), value.array({ "a", "b" })), "split honors result limit")
+end
+
+do
+  group = "currency rounding"
+  check(F.currencyformat(env, { 9.999 }) == "$10.00", "currency rounding carries into integer part")
+  check(F.currencyformat(env, { 999.9, "JPY" }) == "¥1,000", "zero-decimal currency rounds before grouping")
+end
+
+do
+  group = "date overloads"
+  check(ev('date("28/07/2026", "dd/MM/yyyy")').day == 28, "custom date parser returns a date")
+  check(ev('date("28/07/2026", "dd/MM/yyyy")').month == 7, "date accepts numeric format")
+  check(ev('date("July 28, 2026 2:30 PM", "MMMM dd, yyyy h:mm a")').hour == 14, "date accepts named month and meridiem")
+  check(ev('date("2026-02-30", "yyyy-MM-dd")') == value.NULL, "custom date format validates calendar")
+  check(ev('date("1000", "x")').ts == 1, "date accepts epoch milliseconds")
+  check(ev("date([[2026-07-01]])").day == 1, "date accepts date-named links")
+end
+
+do
+  group = "external links"
+  check(
+    ev('typeof(elink("https://example.com", "Label"))') == "widget",
+    "external link is a widget rather than a vault link"
+  )
+  check(value.to_display(ev('elink("https://example.com", "Label")')) == "Label", "external link renders display label")
+  check(ev('meta(elink("https://example.com"))') == value.NULL, "external links do not expose vault link metadata")
+  check(ev('elink("https://example.com").path') == value.NULL, "external links cannot dereference vault pages")
+end
+
+do
+  group = "folder normalization"
+  check(#run('LIST FROM ""').data.groups[1].items == 3, "empty folder source includes whole vault")
+  check(#run('LIST FROM "Journal/"').data.groups[1].items == 2, "folder source permits trailing slash")
+end
+
+do
+  group = "runtime query errors"
+  local result = run("TABLE nonexistent(file.name)")
+  check(
+    not result.ok and result.phase == "eval" and result.msg:find("Unrecognized function", 1, true),
+    "unknown function produces query error rather than null cells"
+  )
+  local shadow = vim.deepcopy(CTX)
+  shadow.index[ROOT .. "/Papers/reading.md"].properties.contains = "frontmatter value"
+  result = query.run('TABLE contains("abc", "a") FROM "Papers"', shadow)
+  check(result.ok and result.data.rows[1].cells[1] == true, "page field does not shadow built-in function calls")
+end
+
+do
+  group = "completion index readiness"
+  local core = require("obsidian-query")
+  local saved_root, saved_gen, saved_peek = core.buf_root, core.generation, idx_mod.peek
+  local saved_cache, saved_types = package.loaded["obsidian.cache"], package.loaded["blink.cmp.types"]
+  core.buf_root = function()
+    return ROOT
+  end
+  core.generation = function()
+    return 2000
+  end
+  local ready
+  idx_mod.peek = function()
+    return ready
+  end
+  package.loaded["obsidian.cache"] = {
+    is_enabled = function()
+      return true
+    end,
+    is_ready = function()
+      return true
+    end,
+    notes = {
+      all = function()
+        return INDEX
+      end,
+    },
+  }
+  package.loaded["blink.cmp.types"] = { CompletionItemKind = { Value = 12 } }
+  local source, buf = require("obsidian-query.blink").new(), vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "```dataview", "" })
+  local function complete()
+    local result
+    local prefix = 'WHERE stage = "'
+    source:get_completions({ bufnr = buf, cursor = { 2, #prefix }, line = prefix }, function(r)
+      result = r
+    end)
+    return result.items
+  end
+  check(#complete() == 0, "unready supplements do not invent completion values")
+  ready = { sup = { [ROOT .. "/Papers/reading.md"] = { fields = { stage = "draft" } } } }
+  check(
+    #complete() == 1 and complete()[1].label == "draft",
+    "ready supplement replaces completion memo without a vault edit"
+  )
+  vim.api.nvim_buf_delete(buf, { force = true })
+  core.buf_root, core.generation, idx_mod.peek = saved_root, saved_gen, saved_peek
+  package.loaded["obsidian.cache"], package.loaded["blink.cmp.types"] = saved_cache, saved_types
 end
 
 io.write(("all %d checks passed\n"):format(n_ok))

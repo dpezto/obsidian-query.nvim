@@ -11,36 +11,96 @@ local function sanitize(k)
 end
 
 ---Decode a raw frontmatter value into dv-values (ISO dates, [[links]], lists).
-function M.decode_fm(v)
+function M.decode_fm(v, ctx, source)
   local t = type(v)
   if t == "string" then
-    local d = value.parse_date(v)
+    local d = value.parse_date(v, true)
     if d ~= NULL then
       return d
     end
-    local inner = v:match("^%[%[(.+)%]%]$")
+    local duration = value.parse_dur(v)
+    if duration ~= NULL then
+      return duration
+    end
+    local inner = v:match("^!?%[%[(.+)%]%]$")
     if inner then
       local path, display = inner:match("^([^|]*)|?(.*)$")
-      return value.link(vim.trim(path), { display = display ~= "" and display or nil })
+      return value.normalize_link(
+        value.link(vim.trim(path), { display = display ~= "" and display or nil, embed = v:sub(1, 1) == "!" }),
+        ctx,
+        source
+      )
     end
     return v
   elseif t == "table" then
     if vim.islist(v) then
       local out = {}
       for i, el in ipairs(v) do
-        out[i] = M.decode_fm(el)
+        out[i] = M.decode_fm(el, ctx, source)
       end
       return value.array(out)
     end
     local out = {}
     for k, el in pairs(v) do
-      out[k] = M.decode_fm(el)
+      out[k] = M.decode_fm(el, ctx, source)
     end
     return out
   elseif v == vim.NIL then
     return NULL
   end
   return v
+end
+
+function M.decode_inline(v, ctx, source)
+  if type(v) == "table" then
+    local out = {}
+    for i, item in ipairs(v) do
+      out[i] = M.decode_inline(item, ctx, source)
+    end
+    return value.array(out)
+  end
+  v = vim.trim(v)
+  if v == "" or v == "null" then
+    return NULL
+  end
+  if v == "true" then
+    return true
+  elseif v == "false" then
+    return false
+  end
+  local number = tonumber(v)
+  if number then
+    return number
+  end
+  local decoded = M.decode_fm(v, ctx, source)
+  if type(decoded) ~= "string" then
+    return decoded
+  end
+  local ast = require("obsidian-query.dataview.parser").parse_expr(v)
+  if ast and (ast.k == "lit" or ast.k == "list" or ast.k == "datelit") then
+    return require("obsidian-query.dataview.eval").expr(ast, {
+      normalize_link = function(link)
+        return value.normalize_link(link, ctx, source)
+      end,
+    })
+  end
+  if v:find(",", 1, true) then
+    ast = require("obsidian-query.dataview.parser").parse_expr("[" .. v .. "]")
+    if ast then
+      local result = require("obsidian-query.dataview.eval").expr(ast, {
+        normalize_link = function(link)
+          return value.normalize_link(link, ctx, source)
+        end,
+      })
+      for _, item in ipairs(result) do
+        if item == NULL then
+          return v
+        end
+      end
+      return result
+    end
+  end
+  return decoded
 end
 
 -- Tasks-plugin emoji shorthands -> field names (each followed by a date)
@@ -74,7 +134,7 @@ end
 ---@param cache_tasks table[] cache rows {line, indent, state, text}
 ---@param headers table[] {line, level, text} sorted by line
 ---@param rel string vault-relative path
-function M.build_tasks(abs_path, cache_tasks, headers, rel)
+function M.build_tasks(abs_path, cache_tasks, headers, rel, ctx)
   local tasks, stack = {}, {}
   for _, ct in ipairs(cache_tasks or {}) do
     -- nearest preceding header (headers sorted by line; both 1-indexed)
@@ -92,8 +152,8 @@ function M.build_tasks(abs_path, cache_tasks, headers, rel)
     end
     -- inline fields on the task: [due:: 2026-08-01] / (key:: v) + emoji dates
     local fields = {}
-    for k, v in (ct.text or ""):gmatch("[%[%(]([%w][%w%s_/%-]-)::%s*([^%]%)]*)[%]%)]") do
-      fields[sanitize(vim.trim(k))] = M.decode_fm(vim.trim(v))
+    for _, field in ipairs(require("obsidian-query.index").inline_fields(ct.text or "")) do
+      fields[field.key] = M.decode_inline(field.value, ctx, abs_path)
     end
     for emoji, field in pairs(TASK_EMOJI) do
       local d = (ct.text or ""):match(vim.pesc(emoji) .. "%s*(%d%d%d%d%-%d%d%-%d%d)")
@@ -105,12 +165,14 @@ function M.build_tasks(abs_path, cache_tasks, headers, rel)
       text = ct.text or "",
       task = true, -- dataview: distinguishes tasks inside file.lists
       status = ct.state or " ",
-      checked = ct.state ~= " ",
+      checked = (ct.state or " ") ~= " ",
       completed = ct.state == "x" or ct.state == "X",
       fullyCompleted = ct.state == "x" or ct.state == "X", -- refined by fold below
-      line = ct.line, -- cache rows store 1-indexed lines (cache/note.lua loops from 1)
+      line = ct.line - 1,
+      _line = ct.line,
       indent = ct.indent or 0,
-      path = abs_path,
+      path = rel,
+      _path = abs_path,
       section = section and value.link(rel, { subpath = section.text, kind = "header", display = section.text })
         or value.link(rel),
       link = value.link(rel, section and { subpath = section.text, kind = "header" } or nil),
@@ -152,20 +214,20 @@ function M.build_tasks(abs_path, cache_tasks, headers, rel)
 end
 
 ---file.lists: every list item (Dataview semantics — tasks included). Checkbox
----items reuse their task object; plain bullets get a light sibling shape.
+---items reuse their task object; plain bullets join the same hierarchy.
 ---Falls back to tasks alone when the supplement predates list indexing.
 ---@param sup {lists?: {line: integer, indent: integer, text: string}[], headers: table[]}
 ---@param tasks table value.array of tasks
 ---@param abs_path string
 ---@param rel string
 ---@return table value.array
-function M.build_lists(sup, tasks, abs_path, rel)
+function M.build_lists(sup, tasks, abs_path, rel, ctx)
   if not sup.lists then
     return tasks
   end
   local by_line = {}
   for _, t in ipairs(tasks) do
-    by_line[t.line] = t
+    by_line[t._line or t.line] = t
   end
   local lists = {}
   for _, li in ipairs(sup.lists) do
@@ -173,24 +235,45 @@ function M.build_lists(sup, tasks, abs_path, rel)
     if t then
       lists[#lists + 1] = t
     else
-      local section
-      for i = #(sup.headers or {}), 1, -1 do
-        if sup.headers[i].line < li.line then
-          section = sup.headers[i]
-          break
-        end
-      end
-      -- ponytail: no children/parent nesting for plain bullets; tasks keep it
-      lists[#lists + 1] = value.task({
-        text = li.text,
-        task = false,
-        line = li.line,
-        indent = li.indent,
-        path = abs_path,
-        section = section and value.link(rel, { subpath = section.text, kind = "header", display = section.text })
-          or value.link(rel),
-        link = value.link(rel, section and { subpath = section.text, kind = "header" } or nil),
-      })
+      local item = M.build_tasks(
+        abs_path,
+        { { line = li.line, indent = li.indent, text = li.text } },
+        sup.headers or {},
+        rel,
+        ctx
+      )[1]
+      item.task, item.status, item.checked, item.completed, item.fullyCompleted = false, nil, nil, nil, nil
+      lists[#lists + 1] = item
+    end
+  end
+  local stack = {}
+  for _, item in ipairs(lists) do
+    item.children, item.parent = value.array({}), NULL
+    while #stack > 0 and stack[#stack].indent >= item.indent do
+      table.remove(stack)
+    end
+    if #stack > 0 then
+      item.parent = stack[#stack].line
+      table.insert(stack[#stack].children, item)
+    end
+    stack[#stack + 1] = item
+  end
+  local function fold(item)
+    local full = true
+    if item.task then
+      full = item.completed
+    end
+    for _, child in ipairs(item.children) do
+      full = fold(child) and full
+    end
+    if item.task then
+      item.fullyCompleted = full
+    end
+    return full
+  end
+  for _, item in ipairs(lists) do
+    if item.parent == NULL then
+      fold(item)
     end
   end
   return value.array(lists)
@@ -201,6 +284,9 @@ end
 ---@param ctx table
 ---@return table page
 function M.build(abs_path, row, ctx)
+  if not ctx.resolve and ctx.index then
+    ctx.resolve = require("obsidian-query.index").make_resolver(ctx.index)
+  end
   local rel = vim.fs.relpath(ctx.root, abs_path) or abs_path
   local name = vim.fn.fnamemodify(abs_path, ":t:r")
   local sup = ctx.sup and ctx.sup[abs_path] or { fields = {}, headers = {} }
@@ -210,7 +296,7 @@ function M.build(abs_path, row, ctx)
   -- frontmatter flattening: raw key, lowered, sanitized kebab (last write wins)
   local fm = {}
   for k, v in pairs(row.properties or {}) do
-    fm[k] = M.decode_fm(v)
+    fm[k] = M.decode_fm(v, ctx, abs_path)
   end
   for k, v in pairs(fm) do
     page[sanitize(k)] = v
@@ -220,7 +306,7 @@ function M.build(abs_path, row, ctx)
   -- inline Key:: fields (already sanitized keys); frontmatter wins on collision
   for k, v in pairs(sup.fields or {}) do
     if page[k] == nil then
-      page[k] = M.decode_fm(v)
+      page[k] = M.decode_inline(v, ctx, abs_path)
     end
   end
 
@@ -229,10 +315,24 @@ function M.build(abs_path, row, ctx)
     day = value.typeof(fm.date) == "date" and fm.date or NULL
   end
 
-  local outlinks = {}
+  local outlinks, seen_links = {}, {}
   for _, l in ipairs(row.links_out or {}) do
     if l.target and l.target ~= "" then
-      outlinks[#outlinks + 1] = value.link(l.target, { display = l.label })
+      local link = value.normalize_link(
+        value.link(l.target, {
+          display = l.label,
+          subpath = l.block or l.anchor,
+          kind = l.block and "block" or (l.anchor and "header" or "file"),
+          embed = l.embed,
+        }),
+        ctx,
+        abs_path,
+        l.kind == "markdown"
+      )
+      local key = value.link_key(link)
+      if not seen_links[key] then
+        outlinks[#outlinks + 1], seen_links[key] = link, true
+      end
     end
   end
   local inlinks = {}
@@ -240,7 +340,7 @@ function M.build(abs_path, row, ctx)
     inlinks[#inlinks + 1] = value.link(vim.fs.relpath(ctx.root, p) or p)
   end
 
-  local tasks = M.build_tasks(abs_path, row.tasks, sup.headers or {}, rel)
+  local tasks = M.build_tasks(abs_path, row.tasks, sup.headers or {}, rel, ctx)
   -- obsidian.nvim v3.16+ nests file stats under row.stat; older rows were flat
   local stat = row.stat or row
   local mtime = stat.mtime_sec or stat.mtime or 0
@@ -262,10 +362,10 @@ function M.build(abs_path, row, ctx)
     aliases = value.array(vim.deepcopy(row.aliases or {})),
     tasks = tasks,
     starred = (ctx.starred and ctx.starred[rel]) or false,
-    lists = M.build_lists(sup, tasks, abs_path, rel),
+    lists = M.build_lists(sup, tasks, abs_path, rel, ctx),
     outlinks = value.array(outlinks),
     inlinks = value.array(inlinks),
-    frontmatter = row.properties or {},
+    frontmatter = fm,
   }, {
     __index = function(self, key)
       -- ctime needs an fs_stat; fetched lazily and cached
@@ -281,6 +381,14 @@ function M.build(abs_path, row, ctx)
 
   page._path = abs_path
   return page
+end
+
+function M.get(path, ctx)
+  ctx.pages = ctx.pages or {}
+  if not ctx.pages[path] and ctx.index[path] then
+    ctx.pages[path] = M.build(path, ctx.index[path], ctx)
+  end
+  return ctx.pages[path]
 end
 
 return M

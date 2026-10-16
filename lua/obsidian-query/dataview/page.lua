@@ -11,7 +11,7 @@ local function sanitize(k)
 end
 
 ---Decode a raw frontmatter value into dv-values (ISO dates, [[links]], lists).
-function M.decode_fm(v)
+function M.decode_fm(v, ctx, source)
   local t = type(v)
   if t == "string" then
     local d = value.parse_date(v)
@@ -21,20 +21,24 @@ function M.decode_fm(v)
     local inner = v:match("^%[%[(.+)%]%]$")
     if inner then
       local path, display = inner:match("^([^|]*)|?(.*)$")
-      return value.link(vim.trim(path), { display = display ~= "" and display or nil })
+      return value.normalize_link(
+        value.link(vim.trim(path), { display = display ~= "" and display or nil }),
+        ctx,
+        source
+      )
     end
     return v
   elseif t == "table" then
     if vim.islist(v) then
       local out = {}
       for i, el in ipairs(v) do
-        out[i] = M.decode_fm(el)
+        out[i] = M.decode_fm(el, ctx, source)
       end
       return value.array(out)
     end
     local out = {}
     for k, el in pairs(v) do
-      out[k] = M.decode_fm(el)
+      out[k] = M.decode_fm(el, ctx, source)
     end
     return out
   elseif v == vim.NIL then
@@ -201,6 +205,9 @@ end
 ---@param ctx table
 ---@return table page
 function M.build(abs_path, row, ctx)
+  if not ctx.resolve and ctx.index then
+    ctx.resolve = require("obsidian-query.index").make_resolver(ctx.index)
+  end
   local rel = vim.fs.relpath(ctx.root, abs_path) or abs_path
   local name = vim.fn.fnamemodify(abs_path, ":t:r")
   local sup = ctx.sup and ctx.sup[abs_path] or { fields = {}, headers = {} }
@@ -210,7 +217,7 @@ function M.build(abs_path, row, ctx)
   -- frontmatter flattening: raw key, lowered, sanitized kebab (last write wins)
   local fm = {}
   for k, v in pairs(row.properties or {}) do
-    fm[k] = M.decode_fm(v)
+    fm[k] = M.decode_fm(v, ctx, abs_path)
   end
   for k, v in pairs(fm) do
     page[sanitize(k)] = v
@@ -220,7 +227,7 @@ function M.build(abs_path, row, ctx)
   -- inline Key:: fields (already sanitized keys); frontmatter wins on collision
   for k, v in pairs(sup.fields or {}) do
     if page[k] == nil then
-      page[k] = M.decode_fm(v)
+      page[k] = M.decode_fm(v, ctx, abs_path)
     end
   end
 
@@ -232,7 +239,7 @@ function M.build(abs_path, row, ctx)
   local outlinks = {}
   for _, l in ipairs(row.links_out or {}) do
     if l.target and l.target ~= "" then
-      outlinks[#outlinks + 1] = value.link(l.target, { display = l.label })
+      outlinks[#outlinks + 1] = value.normalize_link(value.link(l.target, { display = l.label }), ctx, abs_path)
     end
   end
   local inlinks = {}

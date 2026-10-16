@@ -28,6 +28,7 @@ function M.run(spec, ctx, cb)
     local this_path = ctx.buf and vim.api.nvim_buf_is_valid(ctx.buf) and vim.api.nvim_buf_get_name(ctx.buf) or nil
     cb(query.run(spec.body, {
       index = idx.rows,
+      resolve = idx.resolve,
       root = ctx.root,
       sup = idx.sup,
       inlinks = idx.inlinks,

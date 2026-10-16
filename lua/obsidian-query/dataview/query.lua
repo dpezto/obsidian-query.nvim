@@ -201,6 +201,9 @@ function M.env(row, ctx)
     this = ctx.this or NULL,
     funcs = functions.registry,
     now = ctx.now,
+    normalize_link = function(link)
+      return value.normalize_link(link, ctx, ctx.this_path)
+    end,
     resolve_page = function(target)
       local path = ctx.resolve(target, ctx.root, ctx.this_path)
       return path and page_mod.get(path, ctx)

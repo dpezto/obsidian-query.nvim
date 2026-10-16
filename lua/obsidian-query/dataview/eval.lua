@@ -112,7 +112,8 @@ eval_node = function(ast, env)
     return resolve_ident(ast.name, env)
   elseif k == "link" then
     local path, display = ast.raw:match("^([^|]*)|?(.*)$")
-    return value.link(vim.trim(path), { display = display ~= "" and display or nil })
+    local link = value.link(vim.trim(path), { display = display ~= "" and display or nil })
+    return env.normalize_link and env.normalize_link(link) or link
   elseif k == "list" then
     local out = {}
     for _, item in ipairs(ast.items) do

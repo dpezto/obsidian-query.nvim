@@ -144,16 +144,17 @@ R.list = function(_, args)
 end
 R.array = R.list
 
-R.link = function(_, args)
+R.link = vectorize(function(env, args)
   local t = T(args[1])
   if t == "link" then
     local l = args[1]
-    return T(args[2]) == "string" and value.link(l.path, { subpath = l.subpath, display = args[2] }) or l
+    return T(args[2]) == "string" and value.link(l.path, vim.tbl_extend("force", l, { display = args[2] })) or l
   elseif t == "string" then
-    return value.link(args[1], { display = T(args[2]) == "string" and args[2] or nil })
+    local link = value.link(args[1], { display = T(args[2]) == "string" and args[2] or nil, embed = args[3] == true })
+    return env.normalize_link and env.normalize_link(link) or link
   end
   return NULL
-end
+end)
 
 R.object = function(_, args)
   local out = {}

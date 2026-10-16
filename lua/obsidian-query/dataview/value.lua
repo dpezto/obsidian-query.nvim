@@ -113,7 +113,13 @@ end
 
 ---@param path string vault-relative or bare note name
 function M.link(path, opts)
-  opts = opts or {}
+  opts = vim.tbl_extend("force", {}, opts or {})
+  local base, sub = path:match("^(.-)#(.*)$")
+  if base then
+    path = base
+    opts.subpath = opts.subpath or sub:gsub("^%^", "")
+    opts.kind = sub:sub(1, 1) == "^" and "block" or "header"
+  end
   return setmetatable({
     path = path,
     subpath = opts.subpath,
@@ -121,6 +127,14 @@ function M.link(path, opts)
     display = opts.display,
     embed = opts.embed or false,
   }, link_mt)
+end
+
+function M.normalize_link(link, ctx, source)
+  local path = ctx and ctx.resolve and ctx.resolve(link.path, ctx.root, source)
+  if not path then
+    return link
+  end
+  return M.link(vim.fs.relpath(ctx.root, path) or path, link)
 end
 
 function M.array(list)

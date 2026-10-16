@@ -836,6 +836,28 @@ projectctx.index[ROOT .. "/Papers/reading.md"].properties.project = "[[2026-07-1
 deref = query.run('TABLE project.status FROM "Papers"', projectctx)
 check(deref.ok and deref.data.rows[1].cells[1] == "done", "frontmatter link dereference")
 
+group = "link identity"
+local identctx = vim.deepcopy(CTX)
+identctx.this_path = ROOT .. "/Journal/2026-07-01.md"
+identctx.index[ROOT .. "/Papers/reading.md"].properties.project = "[[2026-07-01]]"
+local identity = query.run(
+  'TABLE contains(file.outlinks, this.file.link), project = this.file.link, [[2026-07-01]] = this.file.link, link("2026-07-01") = this.file.link FROM "Papers"',
+  identctx
+)
+for _, cell in ipairs(identity.data.rows[1].cells) do
+  check(cell == true, "outlinks, frontmatter, literals and link() use resolved paths")
+end
+local sublink = value.link("Folder/Note#Heading")
+check(
+  sublink.path == "Folder/Note" and sublink.subpath == "Heading" and sublink.kind == "header",
+  "link subpaths are separate from identity path"
+)
+local unresolved = query.run('TABLE link("missing"), [[missing]] LIMIT 1', vim.tbl_extend("force", {}, CTX))
+check(
+  unresolved.data.rows[1].cells[1].path == "missing" and unresolved.data.rows[1].cells[2].path == "missing",
+  "unresolved links retain their paths"
+)
+
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"
 local base = require("obsidian-query.render")

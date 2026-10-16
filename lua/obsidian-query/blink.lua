@@ -100,7 +100,7 @@ local FN_DOCS = {
   max = "max(a, b, …) / max(array)",
   dateformat = 'dateformat(date, "yyyy-MM-dd")',
   striptime = "striptime(date) — drop time component",
-  regexmatch = 'regexmatch(string, "\\d+")',
+  regexmatch = 'regexmatch("\\d+", string)',
   regexreplace = "regexreplace(string, pat, rep)",
   flat = "flat(array, depth = 1)",
   unique = "unique(array)",

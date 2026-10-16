@@ -319,17 +319,26 @@ end
 -- shared PCRE-ish -> vim very-magic translator (lookarounds, alternation)
 local regex = require("obsidian-query.regex")
 
-R.regexmatch = str_fn(function(s, pat)
-  if T(pat) ~= "string" then
+R.regextest = vectorize(function(_, args)
+  if T(args[1]) == "null" or T(args[2]) == "null" then
+    return false
+  end
+  if T(args[1]) ~= "string" or T(args[2]) ~= "string" then
     return NULL
   end
-  local re = regex.compile(pat)
-  if not re then
-    return NULL
+  local re = regex.compile(args[1])
+  return re and re:match_str(args[2]) ~= nil or false
+end, { 1, 2 })
+R.regexmatch = vectorize(function(env, args)
+  if T(args[1]) ~= "string" then
+    return R.regextest(env, args)
   end
-  return re:match_str(s) ~= nil
-end)
-R.regextest = R.regexmatch
+  local pat = args[1]
+  if pat:sub(1, 1) ~= "^" and pat:sub(-1) ~= "$" then
+    pat = "^" .. pat .. "$"
+  end
+  return R.regextest(env, { pat, args[2] })
+end, { 1, 2 })
 
 R.regexreplace = str_fn(function(s, pat, rep)
   if T(pat) ~= "string" or T(rep) ~= "string" then

@@ -184,7 +184,7 @@ check(F.sum(env, { value.array({ 1, 2, 3 }) }) == 6, "sum")
 check(F.min(env, { 3, 1, 2 }) == 1 and F.max(env, { 3, 1, 2 }) == 3, "min/max varargs")
 check(value.eq(F.sort(env, { value.array({ 3, 1, 2 }) }), value.array({ 1, 2, 3 })), "sort")
 check(value.eq(F.unique(env, { value.array({ 1, 1, 2 }) }), value.array({ 1, 2 })), "unique")
-check(F.regexmatch(env, { "abc123", "\\d+" }) == true, "regexmatch shim")
+check(F.regextest(env, { "\\d+", "abc123" }) == true, "regextest substring")
 check(F.regexreplace(env, { "a1b2", "\\d", "_" }) == "a_b_", "regexreplace")
 check(F.lower(env, { "ABC" }) == "abc", "lower")
 check(value.eq(F.lower(env, { value.array({ "A", "B" }) }), value.array({ "a", "b" })), "vectorized lower")
@@ -577,12 +577,12 @@ check(
 
 ---------------------------------------------------------------- regex
 group = "regex"
-check(F.regexmatch(env, { "foo", "foo|bar" }) == true, "alternation")
-check(F.regexmatch(env, { "foobar", "foo(?=bar)" }) == true, "lookahead")
-check(F.regexmatch(env, { "foobaz", "foo(?=bar)" }) == false, "negative lookahead miss")
-check(F.regexmatch(env, { "xbar", "(?<=x)bar" }) == true, "lookbehind")
+check(F.regextest(env, { "foo|bar", "foo" }) == true, "alternation")
+check(F.regextest(env, { "foo(?=bar)", "foobar" }) == true, "lookahead")
+check(F.regextest(env, { "foo(?=bar)", "foobaz" }) == false, "negative lookahead miss")
+check(F.regextest(env, { "(?<=x)bar", "xbar" }) == true, "lookbehind")
 check(F.regexreplace(env, { "john smith", "(\\w+) (\\w+)", "$2 $1" }) == "smith john", "backref replace")
-check(F.regexmatch(env, { "a@b.com", "\\w+@\\w+" }) == true, "literal @")
+check(F.regextest(env, { "\\w+@\\w+", "a@b.com" }) == true, "literal @")
 
 ---------------------------------------------------------------- formats
 group = "formats"
@@ -1139,6 +1139,12 @@ check(
   "string functions zip arguments"
 )
 check(value.eq(ev("choice([true, false], 1, 2)"), value.array({ 1, 2 })), "choice vectorizes predicate")
+
+group = "regex parity"
+check(ev('regexmatch("[a-z]+", "alpha")') == true, "regexmatch takes pattern first")
+check(ev('regexmatch("[a-z]+", "alpha1")') == false, "regexmatch anchors unanchored patterns")
+check(ev('regextest("[a-z]+", "alpha1")') == true, "regextest permits partial match")
+check(ev('regexmatch(null, "text")') == false, "regex null input is false")
 
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"

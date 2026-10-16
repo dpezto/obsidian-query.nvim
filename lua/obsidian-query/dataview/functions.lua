@@ -238,8 +238,8 @@ R.number = vectorize(function(_, args)
   return NULL
 end)
 
-R.string = function(_, args)
-  return value.to_display(args[1])
+R.string = function(env, args)
+  return value.to_display(args[1], env.settings)
 end
 
 R.list = function(_, args)
@@ -439,11 +439,11 @@ R.flat = function(_, args)
   end
   return value.array(go(as_array(args[1]), depth))
 end
-R.join = function(_, args)
+R.join = function(env, args)
   local sep = T(args[2]) == "string" and args[2] or ", "
   local parts = {}
   for _, el in ipairs(as_array(args[1])) do
-    parts[#parts + 1] = value.to_display(el)
+    parts[#parts + 1] = value.to_display(el, env.settings)
   end
   return table.concat(parts, sep)
 end
@@ -658,7 +658,7 @@ R.dateformat = vectorize(function(_, args)
           { M = "month", d = "day", H = "hour", h = "hour", m = "minute", s = "second", q = "quarter", o = "dayofyear" }
         local ch = fmt:sub(i, i)
         if single[ch] then
-          out[#out + 1] = tostring(d[single[ch]])
+          out[#out + 1] = tostring(ch == "h" and ((d.hour + 11) % 12 + 1) or d[single[ch]])
         elseif ch == "W" then
           out[#out + 1] = tostring(d.week)
         else

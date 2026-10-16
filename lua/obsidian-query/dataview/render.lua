@@ -13,7 +13,7 @@ local base = require("obsidian-query.render")
 local key = base.key
 
 local function more_line(n, what)
-  return { BAR, { ("+%d more %s — %sfor all"):format(n, what, key("<CR>")), "NonText" } }
+  return { BAR, { ("+%d more %s; %sfor all"):format(n, what, key("<CR>")), "NonText" } }
 end
 
 local function width(s)
@@ -33,9 +33,14 @@ local function cell_hl(v)
 end
 
 function M.table_lines(data)
-  local cols = #data.columns
+  local columns = vim.list_slice(data.columns)
+  local settings = data.settings or require("obsidian-query.dataview.settings").defaults
+  if settings.showResultCount and columns[1] then
+    columns[1] = columns[1] .. " (" .. #data.rows .. ")"
+  end
+  local cols = #columns
   local widths = {}
-  for i, c in ipairs(data.columns) do
+  for i, c in ipairs(columns) do
     widths[i] = width(clip(c))
   end
   local display = {}
@@ -43,10 +48,10 @@ function M.table_lines(data)
     local row = data.rows[r]
     local cells = {}
     if data.with_id then
-      cells[1] = { clip(value.to_display(row.id)), cell_hl(row.id) }
+      cells[1] = { clip(value.to_display(row.id, data.settings)), cell_hl(row.id) }
     end
     for _, cell in ipairs(row.cells) do
-      cells[#cells + 1] = { clip(value.to_display(cell)), cell_hl(cell) }
+      cells[#cells + 1] = { clip(value.to_display(cell, data.settings)), cell_hl(cell) }
     end
     for i = 1, cols do
       cells[i] = cells[i] or { "", "RenderMarkdownTableRow" }
@@ -66,7 +71,7 @@ function M.table_lines(data)
   local lines = {}
   lines[#lines + 1] = { BAR, { rule("╭", "┬", "╮"), "RenderMarkdownTableHead" } }
   local head = { BAR, { "│ ", "RenderMarkdownTableHead" } }
-  for i, c in ipairs(data.columns) do
+  for i, c in ipairs(columns) do
     head[#head + 1] = { pad(clip(c), widths[i]), "RenderMarkdownTableHead" }
     head[#head + 1] = { i < cols and " │ " or " │", "RenderMarkdownTableHead" }
   end
@@ -84,7 +89,9 @@ function M.table_lines(data)
   if #data.rows > max_rows() then
     lines[#lines + 1] = more_line(#data.rows - max_rows(), "rows")
   end
-  lines[#lines + 1] = { BAR, { ("%d rows"):format(#data.rows), "Comment" } }
+  if #data.rows == 0 and settings.warnOnEmptyResult then
+    lines[#lines + 1] = { BAR, { "Dataview: No results to show for table query.", "Comment" } }
+  end
   return lines
 end
 
@@ -109,15 +116,15 @@ function M.list_lines(data)
       if group.key ~= nil then
         line[#line + 1] = { "  ", "Comment" }
       end
-      local has_link = item.link ~= nil and value.typeof(item.link) == "link"
+      local has_link = item.link ~= nil
       if has_link then
-        line[#line + 1] = { value.to_display(item.link), "RenderMarkdownLink" }
+        line[#line + 1] = { value.to_display(item.link, data.settings), "RenderMarkdownLink" }
       end
-      if item.text ~= nil and value.typeof(item.text) ~= "null" then
+      if item.text ~= nil then
         if has_link then
           line[#line + 1] = { ": ", "Comment" }
         end
-        line[#line + 1] = { value.to_display(item.text), "RenderMarkdownTableRow" }
+        line[#line + 1] = { value.to_display(item.text, data.settings), "RenderMarkdownTableRow" }
       end
       lines[#lines + 1] = line
     end
@@ -125,38 +132,87 @@ function M.list_lines(data)
   if total > shown then
     lines[#lines + 1] = more_line(total - shown, "results")
   end
-  lines[#lines + 1] = { BAR, { ("%d results"):format(total), "Comment" } }
+  local settings = data.settings or require("obsidian-query.dataview.settings").defaults
+  if total == 0 and settings.warnOnEmptyResult then
+    lines[#lines + 1] = { BAR, { "Dataview: No results to show for list query.", "Comment" } }
+  end
   return lines
 end
 
-function M.task_lines(data)
-  local lines, total, shown = {}, 0, 0
-  for _, group in ipairs(data.groups) do
-    total = total + #group.items
-  end
-  for _, group in ipairs(data.groups) do
-    if shown >= max_rows() then
-      break
+-- Dataview includes children of selected parents, removing duplicate roots.
+function M.task_roots(items)
+  local all = {}
+  local function collect(task)
+    local id = task.path .. ":" .. task.line
+    if all[id] then
+      return
     end
-    lines[#lines + 1] = { BAR, { value.to_display(group.key), "RenderMarkdownH2" } }
-    for _, task in ipairs(group.items) do
-      if shown >= max_rows() then
-        break
-      end
+    all[id] = task
+    for _, child in ipairs(task.children or {}) do
+      collect(child)
+    end
+  end
+  for _, task in ipairs(items) do
+    collect(task)
+  end
+  local roots = {}
+  for _, task in ipairs(items) do
+    if value.typeof(task.parent) == "null" or not all[task.path .. ":" .. task.parent] then
+      roots[#roots + 1] = task
+    end
+  end
+  return roots
+end
+
+function M.task_lines(data)
+  local lines, shown, total = {}, 0, 0
+  local settings = data.settings or require("obsidian-query.dataview.settings").defaults
+  local function count(groups)
+    local n = 0
+    for _, group in ipairs(groups) do
+      n = n + #group.items + count(group.groups or {})
+    end
+    return n
+  end
+  local function task_line(task, depth)
+    total = total + 1
+    if shown < max_rows() then
       shown = shown + 1
       local box = base.checkbox(task.status)
       lines[#lines + 1] = {
         BAR,
-        { string.rep("  ", math.min(task.indent and math.floor(task.indent / 2) or 0, 4) + 1) },
+        { string.rep("  ", depth) },
         { box.icon, box.highlight },
-        { task.text, box.scope_highlight or "RenderMarkdownTableRow" },
+        { task.visual or task.text, box.scope_highlight or "RenderMarkdownTableRow" },
       }
     end
+    for _, child in ipairs(task.children or {}) do
+      task_line(child, depth + 1)
+    end
   end
+  local function groups(groups_, depth)
+    for _, group in ipairs(groups_) do
+      local nested = group.key ~= nil
+      if nested and shown < max_rows() then
+        local label = value.to_display(group.key, settings)
+        if settings.showResultCount then
+          label = label .. " (" .. count(group.groups or {}) + #group.items .. ")"
+        end
+        lines[#lines + 1] = { BAR, { string.rep("  ", depth) .. label, "RenderMarkdownH2" } }
+      end
+      for _, task in ipairs(M.task_roots(group.items)) do
+        task_line(task, depth + (nested and 1 or 0))
+      end
+      groups(group.groups or {}, depth + (nested and 1 or 0))
+    end
+  end
+  groups(data.groups, 0)
   if total > shown then
     lines[#lines + 1] = more_line(total - shown, "tasks")
   end
-  lines[#lines + 1] = { BAR, { ("%d tasks"):format(total), "Comment" } }
+  if total == 0 and settings.warnOnEmptyResult then
+    lines[#lines + 1] = { BAR, { "Dataview: No results to show for task query.", "Comment" } }
+  end
   return lines
 end
 

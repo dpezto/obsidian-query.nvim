@@ -477,10 +477,15 @@ function M.truthy(v)
   return true
 end
 
-function M.to_display(v)
+function M.to_display(v, settings, depth)
+  settings = settings or require("obsidian-query.dataview.settings").defaults
+  depth = depth or 0
+  if depth > settings.maxRecursiveRenderDepth then
+    return "..."
+  end
   local t = M.typeof(v)
   if t == "null" then
-    return ""
+    return (settings.renderNullAs:gsub("\\(%p)", "%1"))
   elseif t == "string" then
     return v
   elseif t == "number" then
@@ -488,11 +493,13 @@ function M.to_display(v)
   elseif t == "boolean" then
     return tostring(v)
   elseif t == "date" then
-    return os.date(v.prec == "date" and "%Y-%m-%d" or "%Y-%m-%d %H:%M", math.floor(v.ts)) --[[@as string]]
+    local fmt = v.hour == 0 and v.minute == 0 and v.second == 0 and settings.defaultDateFormat
+      or settings.defaultDateTimeFormat
+    return require("obsidian-query.dataview.functions").registry.dateformat({}, { v, fmt })
   elseif t == "duration" then
     -- negative durations (date - later_date): display the magnitude, signed
     if dur_approx_ms(v) < 0 then
-      return "-" .. M.to_display(M.dur(-v.ms, -(rawget(v, "months") or 0)))
+      return "-" .. M.to_display(M.dur(-v.ms, -(rawget(v, "months") or 0)), settings, depth)
     end
     local parts = {}
     local months = rawget(v, "months") or 0
@@ -514,11 +521,12 @@ function M.to_display(v)
     end
     return #parts > 0 and table.concat(parts, ", ") or "0 seconds"
   elseif t == "link" then
-    return v.display or vim.fn.fnamemodify(v.path, ":t:r")
+    local name = vim.fn.fnamemodify(v.path, ":t"):gsub("%.md$", "")
+    return v.display or (name .. (v.subpath and (" > " .. v.subpath) or ""))
   elseif t == "array" then
     local parts = {}
     for _, x in ipairs(v) do
-      parts[#parts + 1] = M.to_display(x)
+      parts[#parts + 1] = M.to_display(x, settings, depth + 1)
     end
     return table.concat(parts, ", ")
   elseif t == "object" then

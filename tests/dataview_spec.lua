@@ -141,7 +141,7 @@ check(value.typeof(value.parse_date("nope")) == "null", "bad date -> null")
 -- Obsidian writes frontmatter timestamps space-separated, not ISO "T"
 local sp = value.parse_date("2024-02-18 10:44")
 check(sp.prec == "datetime" and sp.hour == 10 and sp.minute == 44, "space-separated datetime")
-check(value.to_display(sp) == "2024-02-18 10:44", "space form keeps its time")
+check(value.to_display(sp) == "10:44 AM - February 18, 2024", "space form keeps its time")
 check(value.parse_date("2026-07-01 is a Wednesday").prec == "date", "trailing prose stays a date")
 -- negative durations keep their calendar part and display signed
 local neg = value.arith("-", value.parse_date("2026-01-01"), value.parse_date("2026-01-02"))
@@ -556,22 +556,22 @@ check(pe("1 +") == nil, "truncated expr rejected")
 local ienv = { page = pg, this = pg, funcs = F, now = NOW }
 check(eval.expr(pe("this.file.name"), ienv) == "2026-07-01", "this in inline env")
 check(value.to_display(eval.expr(pe("length(file.tasks)"), ienv)) == "3", "inline call display")
-check(value.to_display(eval.expr(pe("missing.field"), ienv)) == "", "null displays empty (no mark)")
+check(value.to_display(eval.expr(pe("missing.field"), ienv)) == "-", "null uses default rendering")
 
 ---------------------------------------------------------------- durations
 group = "durations"
 local jan31 = value.parse_date("2026-01-31")
 local plus1mo = value.arith("+", jan31, value.parse_dur("1 month"))
-check(value.to_display(plus1mo) == "2026-02-28", "month shift clamps day")
+check(value.to_display(plus1mo) == "February 28, 2026", "month shift clamps day")
 check(
-  value.to_display(value.arith("+", value.parse_date("2024-02-29"), value.parse_dur("1 year"))) == "2025-02-28",
+  value.to_display(value.arith("+", value.parse_date("2024-02-29"), value.parse_dur("1 year"))) == "February 28, 2025",
   "year shift clamps leap day"
 )
 check(value.parse_dur("1 mo").months == 1 and value.parse_dur("2 years").months == 24, "symbolic months")
 check(value.to_display(value.parse_dur("14 months, 3 days")) == "1 year, 2 months, 3 days", "hybrid display")
 check(value.cmp(value.parse_dur("1 month"), value.parse_dur("29 days")) == 1, "approx ordering")
 check(
-  value.to_display(value.arith("-", value.parse_date("2026-03-31"), value.parse_dur("1 month"))) == "2026-02-28",
+  value.to_display(value.arith("-", value.parse_date("2026-03-31"), value.parse_dur("1 month"))) == "February 28, 2026",
   "month subtraction clamps"
 )
 
@@ -931,6 +931,52 @@ check(tracked == "- [x] work ✅ " .. os.date("%Y-%m-%d"), "emoji completion dat
 check(dv_engine.toggle_task_line(tracked, nil, tracking) == "- [ ] work", "reopening removes emoji completion")
 vim.fn.delete(settings_root, "rf")
 
+group = "render parity"
+local rendered_table = flatten(dv_render.lines(run("TABLE status")))
+check(rendered_table[2]:find("File (3)", 1, true) ~= nil, "table result count in first header")
+local rendered_noid = flatten(dv_render.lines(run("TABLE WITHOUT ID status")))
+check(rendered_noid[2]:find("status (3)", 1, true) ~= nil, "WITHOUT ID still counts first column")
+for _, kind in ipairs({ "TABLE status", "LIST", "TASK" }) do
+  local empty = run(kind .. " FROM #missing")
+  check(
+    table.concat(flatten(dv_render.lines(empty))):find("Dataview: No results to show", 1, true) ~= nil,
+    "empty warning for " .. kind
+  )
+  empty.data.settings = vim.tbl_extend("force", empty.data.settings, { warnOnEmptyResult = false })
+  check(not table.concat(flatten(dv_render.lines(empty))):find("No results", 1, true), "empty warning can be disabled")
+end
+local grouped_list = run("LIST length(rows) GROUP BY status")
+check(#grouped_list.data.groups == 1 and #grouped_list.data.groups[1].items == 2, "grouped LIST projects group rows")
+check(grouped_list.data.groups[1].items[1].text == 1, "grouped LIST evaluates length(rows) on group")
+local grouped_false = run("LIST GROUP BY priority = 1")
+check(grouped_false.data.groups[1].items[1].link == false, "grouped LIST preserves false key")
+local grouped_table = run("TABLE length(rows) GROUP BY status")
+check(grouped_table.data.columns[1] == "status", "grouped table header is group expression")
+local task_lines = flatten(dv_render.lines(run('TASK FROM "Journal" WHERE !completed')))
+check(
+  #task_lines == 2 and task_lines[2]:find("sub uno", 1, true),
+  "TASK includes selected parent's children with no file header"
+)
+local all_task_lines = flatten(dv_render.lines(run('TASK FROM "Journal"')))
+check(#all_task_lines == 3, "TASK children rendered once")
+local group_task_lines = flatten(dv_render.lines(run('TASK FROM "Journal" GROUP BY completed')))
+check(group_task_lines[1]:find("false (1)", 1, true), "task groups have counts")
+check(value.to_display(value.parse_date("2026-07-01T00:00")) == "July 01, 2026", "midnight datetime uses date format")
+local fmt_settings = vim.tbl_extend(
+  "force",
+  require("obsidian-query.dataview.settings").defaults,
+  { defaultDateFormat = "dd/MM/yyyy", renderNullAs = "none" }
+)
+check(
+  value.to_display(value.parse_date("2026-07-01"), fmt_settings) == "01/07/2026"
+    and value.to_display(value.NULL, fmt_settings) == "none",
+  "custom rendering settings"
+)
+check(
+  value.to_display(value.link("Folder/image.png#Header")) == "image.png > Header",
+  "link display preserves attachment extensions and subpaths"
+)
+
 ---------------------------------------------------------------- checkboxes
 group = "checkbox"
 local base = require("obsidian-query.render")
@@ -1035,7 +1081,7 @@ do
   local function draw()
     local marks = core.parse({ buf = note })
     local lines = marks[1].opts.virt_lines
-    count = lines[#lines][2][1]
+    count = table.concat(flatten(lines), "\n")
   end
   package.loaded["render-markdown.api"] = {
     render = function()
@@ -1045,7 +1091,7 @@ do
     end,
   }
   draw()
-  check(count == "1 tasks", "initial remaining task count")
+  check(count:find("align #lab", 1, true) ~= nil, "initial remaining task count")
   local picker_buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_set_current_buf(picker_buf)
   rows[ROOT .. "/Journal/2026-07-01.md"].tasks[1].state = "x"
@@ -1053,11 +1099,11 @@ do
   vim.wait(20, function()
     return false
   end)
-  check(count == "1 tasks", "refresh skipped while picker was open")
+  check(count:find("align #lab", 1, true) ~= nil, "refresh skipped while picker was open")
   vim.api.nvim_set_current_buf(note)
   check(
     vim.wait(200, function()
-      return count == "0 tasks"
+      return count:find("No results to show for task query", 1, true) ~= nil
     end),
     "closing picker refreshes remaining count"
   )

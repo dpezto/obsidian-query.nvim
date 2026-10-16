@@ -183,10 +183,10 @@ function M.pick(spec, ctx, result)
       if row.path ~= "" then
         local parts = {}
         for _, c in ipairs(row.cells) do
-          parts[#parts + 1] = value.to_display(c)
+          parts[#parts + 1] = value.to_display(c, data.settings)
         end
         local cells = table.concat(parts, " · ")
-        local id = value.to_display(row.id)
+        local id = value.to_display(row.id, data.settings)
         items[#items + 1] = {
           file = row.path,
           text = id .. " " .. cells,
@@ -198,8 +198,8 @@ function M.pick(spec, ctx, result)
     for _, group in ipairs(data.groups) do
       for _, item in ipairs(group.items) do
         if item.path ~= "" then
-          local label = value.to_display(item.link or item.text)
-          local extra = item.link and item.text and value.to_display(item.text) or ""
+          local label = value.to_display(item.link ~= nil and item.link or item.text, data.settings)
+          local extra = item.link and item.text and value.to_display(item.text, data.settings) or ""
           items[#items + 1] = {
             file = item.path,
             text = label .. " " .. extra,
@@ -209,31 +209,41 @@ function M.pick(spec, ctx, result)
       end
     end
   elseif data.kind == "task" then
-    for _, group in ipairs(data.groups) do
-      for _, task in ipairs(group.items) do
-        local box = base.checkbox(task.status)
-        items[#items + 1] = {
-          file = task.path,
-          text = note_name(task.path) .. " " .. task.text,
-          pos = { task.line, 0 },
-          task_text = task.text,
-          task = task,
-          settings = data.settings,
-          display = {
-            { note_name(task.path), "Directory" },
-            { "  " },
-            { box.icon, box.highlight },
-            { task.text, task.completed and "Comment" or "Normal" },
-          },
-        }
+    local function add_task(task)
+      local box = base.checkbox(task.status)
+      items[#items + 1] = {
+        file = task.path,
+        text = note_name(task.path) .. " " .. task.text,
+        pos = { task.line, 0 },
+        task_text = task.text,
+        task = task,
+        settings = data.settings,
+        display = {
+          { note_name(task.path), "Directory" },
+          { "  " },
+          { box.icon, box.highlight },
+          { task.text, task.completed and "Comment" or "Normal" },
+        },
+      }
+      for _, child in ipairs(task.children or {}) do
+        add_task(child)
       end
     end
+    local function add_groups(groups)
+      for _, group in ipairs(groups) do
+        for _, task in ipairs(dv_render.task_roots(group.items)) do
+          add_task(task)
+        end
+        add_groups(group.groups or {})
+      end
+    end
+    add_groups(data.groups)
   elseif data.kind == "calendar" then
     -- only the month on screen, matching the one-month inline view
     local shown = dv_render.view_month(data, result.view)
     for _, d in ipairs(data.dated) do
       if d.path ~= "" and d.date.year == shown.year and d.date.month == shown.month then
-        local date = value.to_display(d.date)
+        local date = value.to_display(d.date, data.settings)
         items[#items + 1] = {
           file = d.path,
           text = date .. " " .. note_name(d.path),

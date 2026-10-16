@@ -434,7 +434,11 @@ function P:commands()
         self:err("expected BY after GROUP")
       end
       self:advance()
-      cmds[#cmds + 1] = { cmd = "group", expr = self:expr(), alias = self:alias() }
+      local start = self:tok().pos
+      local expr = self:expr()
+      local stop = self:tok().pos
+      cmds[#cmds + 1] =
+        { cmd = "group", expr = expr, alias = self:alias(), src = vim.trim(self.src:sub(start, stop - 1)) }
     elseif kw == "FLATTEN" then
       self:advance()
       local start = self:tok().pos

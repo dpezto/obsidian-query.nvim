@@ -284,9 +284,7 @@ local function run_commands(rows, cmds, ctx)
           rows = value.array(bucket.members),
           file = { link = NULL, path = "", name = value.to_display(bucket.key) },
         }
-        if cmd.alias then
-          g[cmd.alias] = bucket.key
-        end
+        g[cmd.alias or cmd.src] = bucket.key
         grouped[#grouped + 1] = g
       end
       rows = grouped
@@ -351,41 +349,27 @@ local function project(header, rows, ctx)
     end
     return { kind = "table", with_id = not header.without_id, columns = columns, rows = out_rows }
   elseif header.kind == "list" then
-    -- grouped rows (from GROUP BY) become groups; otherwise one flat group
-    local groups = {}
-    local grouped = #rows > 0 and rows[1].rows ~= nil and value.typeof(rows[1].rows) == "array"
-    if grouped then
-      for _, g in ipairs(rows) do
-        local items = {}
-        for _, member in ipairs(g.rows) do
-          local text
-          if header.expr then
-            text = eval.expr(header.expr, row_env(member, ctx))
-          end
-          items[#items + 1] = {
-            link = not header.without_id and (member.file and member.file.link or NULL) or nil,
-            text = text,
-            path = member._path or "",
-          }
-        end
-        groups[#groups + 1] = { key = g.key, items = items }
+    local items = {}
+    for _, row in ipairs(rows) do
+      local text
+      if header.expr then
+        text = eval.expr(header.expr, row_env(row, ctx))
       end
-    else
-      local items = {}
-      for _, row in ipairs(rows) do
-        local text
-        if header.expr then
-          text = eval.expr(header.expr, row_env(row, ctx))
-        end
-        items[#items + 1] = {
-          link = not header.without_id and (row.file and row.file.link or NULL) or nil,
-          text = text,
-          path = row._path or "",
-        }
+      local id = row.file and row.file.link or NULL
+      if row.key ~= nil then
+        id = row.key
       end
-      groups[1] = { key = nil, items = items }
+      local link
+      if not header.without_id or not header.expr then
+        link = id
+      end
+      items[#items + 1] = {
+        link = link,
+        text = text,
+        path = row._path or "",
+      }
     end
-    return { kind = "list", groups = groups }
+    return { kind = "list", groups = { { items = items } } }
   elseif header.kind == "calendar" then
     -- bucket dated rows by (year, month); months + dated both newest-first
     local months, by_ym, dated = {}, {}, {}
@@ -415,33 +399,21 @@ local function project(header, rows, ctx)
     local today = { year = t.year, month = t.month, day = t.day }
     return { kind = "calendar", months = months, dated = dated, today = today }
   elseif header.kind == "task" then
-    local groups, by_file, order = {}, {}, {}
-    local grouped = #rows > 0 and rows[1].rows ~= nil and value.typeof(rows[1].rows) == "array"
-    if grouped then
-      for _, g in ipairs(rows) do
-        local items = {}
-        for _, member in ipairs(g.rows) do
-          if member._task then
-            items[#items + 1] = member._task
-          end
-        end
-        groups[#groups + 1] = { key = g.key, items = items }
-      end
-    else
-      for _, row in ipairs(rows) do
-        if row._task then
-          local fpath = row._path or ""
-          local g = by_file[fpath]
-          if not g then
-            g = { key = row.file and row.file.link or NULL, items = {} }
-            by_file[fpath] = g
-            order[#order + 1] = g
-          end
-          table.insert(g.items, row._task)
+    local function task_groups(members)
+      local groups, items = {}, {}
+      for _, row in ipairs(members) do
+        if row.rows then
+          groups[#groups + 1] = { key = row.key, groups = task_groups(row.rows), items = {} }
+        elseif row._task then
+          items[#items + 1] = row._task
         end
       end
-      groups = order
+      if #items > 0 then
+        groups[#groups + 1] = { items = items }
+      end
+      return groups
     end
+    local groups = task_groups(rows)
     return { kind = "task", groups = groups }
   end
   return { kind = "unsupported", what = header.kind }

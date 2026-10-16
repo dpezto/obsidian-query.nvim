@@ -1551,6 +1551,8 @@ do
     "invalid calendar dates are null"
   )
   check(value.parse_date("2026-07-01T25:00") == value.NULL, "invalid times are null")
+  check(page_mod.decode_fm("2026-07-01 16:05") == "2026-07-01 16:05", "space-separated datetime stays text")
+  check(value.typeof(page_mod.decode_fm("2026-07-01T16:05")) == "date", "T-separated datetime is a date")
   check(page_mod.decode_fm("2026-07-01 prose") == "2026-07-01 prose", "frontmatter date parsing consumes full value")
   check(
     value.eq(value.parse_date("2026-07-01T12:30:00Z"), value.parse_date("2026-07-01T06:30:00-06:00")),

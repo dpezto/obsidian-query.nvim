@@ -204,7 +204,9 @@ function M.parse_date(s, exact)
     return M.NULL
   end
   local rest = s:sub(11)
-  local h, mi, tail = rest:match("^[T ](%d%d):(%d%d)(.*)$")
+  -- Dataview's date grammar only takes `T` before the time; a space there
+  -- leaves the whole value text (file names may still use one)
+  local h, mi, tail = rest:match(exact and "^T(%d%d):(%d%d)(.*)$" or "^[T ](%d%d):(%d%d)(.*)$")
   local sec, fraction, zone = 0, 0, nil
   if h then
     h, mi = tonumber(h), tonumber(mi)

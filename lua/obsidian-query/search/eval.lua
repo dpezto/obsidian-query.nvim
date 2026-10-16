@@ -245,8 +245,13 @@ local function leaf_on_texts(leaf, texts, case)
       if not col then
         break
       end
-      locs[#locs + 1] =
-        { lnum = t.lnum, col = col + (t.offset or 0), end_col = ending + (t.offset or 0), text = t.display or t.text }
+      locs[#locs + 1] = {
+        lnum = t.lnum,
+        kind = t.kind,
+        col = col + (t.offset or 0),
+        end_col = ending + (t.offset or 0),
+        text = t.display or t.text,
+      }
       if ending <= col then
         break
       end
@@ -412,25 +417,19 @@ eval_node = function(ast, note, case)
   local k = ast.k
   if k == "and" or k == "or" or k == "not" then
     return eval_scoped(ast, note, nil, case)
-  elseif k == "word" or k == "phrase" then
-    -- bare terms match content or the filename (Obsidian unions both)
+  elseif k == "word" or k == "phrase" or k == "regex" then
     local ok, locs = leaf_on_texts(ast, content_texts(note), case)
-    if ok then
-      return true, locs
-    end
-    return find_plain(note.name, ast.text, case) ~= nil, {}
-  elseif k == "regex" then
-    return leaf_on_texts(ast, content_texts(note), case)
+    local filename, matches = leaf_on_texts(ast, { { lnum = 0, text = note.name, kind = "filename" } }, case)
+    vim.list_extend(locs, matches)
+    return ok or filename, locs
   elseif k == "prop" then
     return prop_match(note, ast.name, ast.value)
   elseif k == "op" then
     local n, arg = ast.name, ast.arg
     if n == "file" then
-      local ok = eval_scoped(arg, note, { { lnum = 1, text = note.name } }, case)
-      return ok, {}
+      return eval_scoped(arg, note, { { lnum = 0, text = note.name, kind = "filename" } }, case)
     elseif n == "path" then
-      local ok = eval_scoped(arg, note, { { lnum = 1, text = note.rel } }, case)
-      return ok, {}
+      return eval_scoped(arg, note, { { lnum = 0, text = note.rel, kind = "path" } }, case)
     elseif n == "content" then
       return eval_scoped(arg, note, content_texts(note), case)
     elseif n == "tag" then
@@ -468,21 +467,29 @@ function M.run(ast, note)
   table.sort(locs, function(a, b)
     return a.lnum < b.lnum or (a.lnum == b.lnum and a.col < b.col)
   end)
-  local seen, out = {}, {}
+  local seen, out, title = {}, {}, nil
   for _, l in ipairs(locs) do
-    local line = seen[l.lnum]
-    if not line then
-      line = l
-      line.ranges = {}
-      seen[l.lnum], out[#out + 1] = line, line
-    end
-    local ending = l.end_col or l.col
-    local last = line.ranges[#line.ranges]
-    if not last or last[1] ~= l.col or last[2] ~= ending then
-      line.ranges[#line.ranges + 1] = { l.col, ending }
+    if l.kind == "path" then
+      title = note.rel
+    elseif l.kind == "filename" then
+      if not title and (l.end_col or l.col) > #M.label(note.path) + 1 then
+        title = note.name
+      end
+    else
+      local line = seen[l.lnum]
+      if not line then
+        line = l
+        line.ranges = {}
+        seen[l.lnum], out[#out + 1] = line, line
+      end
+      local ending = l.end_col or l.col
+      local last = line.ranges[#line.ranges]
+      if not last or last[1] ~= l.col or last[2] ~= ending then
+        line.ranges[#line.ranges + 1] = { l.col, ending }
+      end
     end
   end
-  return true, out
+  return true, out, title
 end
 
 return M

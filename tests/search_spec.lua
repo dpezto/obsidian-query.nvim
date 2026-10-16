@@ -338,4 +338,17 @@ local filename_note = eval.note("/v/Needle.md", "Needle.md", "")
 check(eval.run(assert(parser.parse("match-case:(Needle)")), filename_note), "case override retains filename matching")
 check(not eval.run(assert(parser.parse("content:Needle")), filename_note), "content excludes filename-only matches")
 
+group = "result titles"
+do
+  local note = eval.note("/v/Folder/Needle.md", "Folder/Needle.md", "")
+  local yes, locs, label = eval.run(assert(parser.parse("path:Folder")), note)
+  check(yes and #locs == 0 and label == "Folder/Needle.md", "path matches show relative path without content snippets")
+  yes, locs, label = eval.run(assert(parser.parse("file:.md")), note)
+  check(yes and #locs == 0 and label == "Needle.md", "extension filename matches retain extension in result title")
+  yes, locs = eval.run(assert(parser.parse("/Needle/")), note)
+  check(yes and #locs == 0, "bare regex can match filename")
+  yes, locs, label = eval.run(assert(parser.parse("(path:Folder missing) OR Needle")), note)
+  check(yes and label == nil, "failed OR branch cannot change result title")
+end
+
 io.write(("all %d checks passed\n"):format(n_ok))

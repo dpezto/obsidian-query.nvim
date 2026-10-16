@@ -195,12 +195,12 @@ function M.run(spec, ctx, cb)
               hit.results[spec.ast] = results
               local result = results[key]
               if not result then
-                local ok, locs = eval.run(spec.ast, own and origin_note(hit) or hit.note)
-                result = { ok = ok, locs = locs }
+                local ok, locs, label = eval.run(spec.ast, own and origin_note(hit) or hit.note)
+                result = { ok = ok, locs = locs, label = label }
                 results[key] = result
               end
               if result.ok then
-                files[#files + 1] = { path = path, matches = result.locs }
+                files[#files + 1] = { path = path, matches = result.locs, label = result.label }
                 for _, loc in ipairs(result.locs) do
                   total = total + #(loc.ranges or { loc })
                 end
@@ -249,7 +249,7 @@ function M.lines(result)
     local f = result.files[fi]
     lines[#lines + 1] = {
       { "▏ ", "RenderMarkdownBullet" },
-      { eval.label(f.path), "RenderMarkdownLink" },
+      { f.label or eval.label(f.path), "RenderMarkdownLink" },
     }
     local snippets = {}
     for _, match in ipairs(f.matches) do
@@ -288,7 +288,7 @@ function M.pick(spec, _, result)
   end
   local items = {}
   for _, f in ipairs(result.files) do
-    local name = eval.label(f.path)
+    local name = f.label or eval.label(f.path)
     if #f.matches == 0 then
       items[#items + 1] = {
         file = f.path,
